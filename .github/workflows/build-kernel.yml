@@ -152,8 +152,8 @@ jobs:
             "ghcr.io/qualcomm-linux/pkg-builder:${SUITE}" \
             bash -c "
               set -e
-              sudo apt-get update -qq
-              sudo apt-get build-dep -y kernel-src/
+              apt-get update -qq
+              apt-get build-dep -y kernel-src/
               cd kernel-src/
               # The Ubuntu kernel uses debian.master/ with debian/ as a symlink.
               # Ensure the symlink exists (git may not preserve it).
