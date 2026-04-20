@@ -4,32 +4,92 @@ Mirror and CI build pipeline for Canonical Ubuntu kernel source packages.
 
 ---
 
-## Repository layout
+## End-to-end pipeline
 
 ```
-main branch (this branch)
-├── .github/workflows/
-│   ├── fetch-source-pkg.yml   ← sync Launchpad sources → series branch
-│   ├── build-kernel.yml       ← build .deb packages from series branch
-│   └── mirror-git.yml         ← optional: full git history mirror
-├── scripts/
-│   ├── check-version.sh       ← query latest version from Launchpad
-│   ├── fetch-source-pkg.sh    ← download source package files
-│   └── build-kernel-deb.sh    ← build kernel .deb packages locally
-└── README.md
+┌─────────────────────────────────────────────────────────────────────┐
+│                        DAILY (04:00 UTC)                            │
+│                                                                     │
+│  Launchpad                                                          │
+│  api.launchpad.net  ──► fetch-source-pkg.yml                        │
+│                              │                                      │
+│                    ┌─────────▼──────────┐                           │
+│                    │  Job 1: check-version                          │
+│                    │  curl Launchpad API │                           │
+│                    │  → noble 6.8.0-51.52│                          │
+│                    │  tag exists? YES→skip                          │
+│                    │             NO ↓   │                           │
+│                    └─────────┬──────────┘                           │
+│                              │                                      │
+│                    ┌─────────▼──────────┐                           │
+│                    │  Job 2: sync        │                          │
+│                    │  download .dsc      │                          │
+│                    │  + .orig.tar.gz     │                          │
+│                    │  + .debian.tar.xz   │                          │
+│                    │  dpkg-source -x     │                          │
+│                    │  → full source tree │                          │
+│                    │  commit to noble    │                          │
+│                    │  branch + tag       │                          │
+│                    └─────────┬──────────┘                           │
+│                              │                                      │
+│                    ┌─────────▼──────────┐                           │
+│                    │  Job 3: trigger     │                          │
+│                    │  gh workflow run    │                          │
+│                    │  build-kernel.yml   │                          │
+│                    └─────────┬──────────┘                           │
+│                              │                                      │
+│                    ┌─────────▼──────────┐                           │
+│                    │  build-kernel.yml   │                          │
+│                    │  checkout noble     │                          │
+│                    │  branch             │                          │
+│                    │  apt-get build-dep  │                          │
+│                    │  fakeroot           │                          │
+│                    │  debian/rules       │                          │
+│                    │  binary-generic     │                          │
+│                    └─────────┬──────────┘                           │
+│                              │                                      │
+│               ┌──────────────┴──────────────┐                       │
+│               ▼                             ▼                       │
+│   GitHub Actions Artifact         GitHub Release Asset              │
+│   (90-day retention)              noble-6.8.0-51.52                 │
+│   Actions → run → Artifacts       Releases page → Assets            │
+│                                   (permanent)                       │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
-noble branch  ← Ubuntu Noble (24.04 LTS) kernel source tree, one commit per upload
-<series>      ← additional series added on demand (questing, resolute, …)
+---
+
+## Repository branch layout
+
+```
+pkg-linux-qcom-canonical
+│
+├── main branch
+│   ├── .github/workflows/
+│   │   ├── fetch-source-pkg.yml   ← sync Launchpad sources → series branch
+│   │   └── build-kernel.yml       ← build .deb packages from series branch
+│   ├── scripts/
+│   │   ├── check-version.sh       ← query latest version from Launchpad
+│   │   ├── fetch-source-pkg.sh    ← download source package files
+│   │   └── build-kernel-deb.sh    ← build kernel .deb packages locally
+│   └── README.md
+│
+├── noble branch  (orphan)
+│   └── Full Ubuntu Noble 24.04 LTS kernel source tree
+│       One commit per Canonical upload
+│       Tagged noble-6.8.0-51.52, noble-6.8.0-52.53, …
+│
+└── <series> branch  (orphan, added on demand)
+    └── Full kernel source for that series
+        e.g. questing, resolute
 ```
 
 Series branches are **orphan branches** — they share no history with `main`
 and contain only the extracted kernel source tree.
 
-Each upload is tagged `<series>-<version>`, e.g. `noble-6.8.0-51.52`.
-
 ---
 
-## Upstream sources
+## Upstream source
 
 | Resource | URL |
 |----------|-----|
@@ -49,21 +109,14 @@ package, downloads the `.dsc` + tarballs, extracts the full source tree
 with `dpkg-source -x` (applying all Ubuntu patches), and commits the
 result to the corresponding series branch.
 
-```
-Launchpad archive
-  linux_6.8.0.orig.tar.gz          ─┐
-  linux_6.8.0-51.52.debian.tar.xz   ├─ dpkg-source -x ──► noble branch commit
-  linux_6.8.0-51.52.dsc            ─┘                      tagged noble-6.8.0-51.52
-```
-
 **Schedule**: daily at **04:00 UTC**  
 **Manual trigger**: `Actions → Sync: Canonical Kernel Sources to Branch → Run workflow`
 
-**Inputs** (manual dispatch):
+**Inputs**:
 
 | Input | Default | Description |
 |-------|---------|-------------|
-| `series` | `noble` | Ubuntu series to sync |
+| `series` | `noble` | Ubuntu series to sync — one series per run |
 | `force` | `false` | Re-sync even if tag already exists |
 
 **Idempotent**: checks for the tag before downloading anything.  
@@ -73,55 +126,31 @@ Launchpad archive
 
 ### `build-kernel.yml` — Build .deb packages
 
-Checks out the series branch (which contains the full kernel source tree)
-and builds `.deb` packages using the Ubuntu `debian/rules` build system.
+Checks out the series branch (full kernel source tree) and builds `.deb`
+packages using the Ubuntu `debian/rules` build system on the native arm64
+self-hosted runner.
 
 **Trigger**: dispatched automatically by `fetch-source-pkg.yml`, or
 manually via `Actions → Build: Canonical Kernel .deb Packages → Run workflow`.
 
-**Inputs** (manual dispatch):
+**Inputs**:
 
 | Input | Default | Description |
 |-------|---------|-------------|
 | `series` | `noble` | Series branch to build from |
-| `kernel_version` | — | Version string for artifact naming |
-| `arch` | `arm64` | Target architecture: `arm64` or `amd64` |
+| `kernel_version` | — | Version string for release asset attachment |
+| `arch` | `arm64` | Target architecture |
 | `flavor` | `generic` | Kernel flavour: `generic`, `lowlatency`, or `all` |
 
 **Output — two locations**:
 
 | Location | How to access | Retention |
 |----------|---------------|-----------|
-| **GitHub Actions artifact** | Actions → workflow run → *Artifacts* section at the bottom | 90 days |
-| **GitHub Release asset** | Releases page → tag `noble-6.8.0-X.Y` → Assets | Permanent |
+| **GitHub Actions artifact** | Actions → workflow run → *Artifacts* | 90 days |
+| **GitHub Release asset** | Releases → `noble-6.8.0-X.Y` → Assets | Permanent |
 
-The `.deb` files are attached to the release tag automatically when `kernel_version` is provided (which `fetch-source-pkg.yml` always does).
-
-**Resource requirements**:
-
-| Resource | Requirement |
-|----------|-------------|
-| Disk space | ~20 GB (runner is cleaned before build) |
-| Wall-clock | ~60–90 min (generic, 2 vCPU GitHub runner) |
-| RAM | ~4 GB |
-
-> **Runner**: `lecore-prd-u2404-arm64-xlrg-od-ephem` (Ubuntu 24.04 arm64, native build — no cross-compilation).
-
----
-
-### `mirror-git.yml` — Full git history mirror *(optional)*
-
-Mirrors the complete Canonical Ubuntu kernel git tree from Launchpad to a
-separate GitHub repository, preserving every intermediate commit made by
-the Ubuntu kernel team between uploads.
-
-This is complementary to `fetch-source-pkg.yml`: the series branch gives
-you one clean snapshot per upload; the git mirror gives you the full
-development history.
-
-**Schedule**: daily at **03:00 UTC**  
-**Required secret**: `MIRROR_PUSH_TOKEN` (PAT with `repo` scope on the target repo)  
-**Required variable**: `MIRROR_TARGET_REPO` (e.g. `qualcomm-linux/linux-noble`)
+**Runner**: `lecore-prd-u2404-arm64-xlrg-od-ephem`  
+Native arm64 build — no cross-compilation.
 
 ---
 
@@ -139,37 +168,21 @@ Go to **Actions** and enable workflows if prompted.
 |----------|---------|-------------|
 | `KERNEL_SERIES` | `noble` | Default series for scheduled runs |
 | `KERNEL_SOURCE` | `linux` | Source package name |
-| `MIRROR_TARGET_REPO` | `qualcomm-linux/linux-noble` | Target repo for git mirror |
 
-### 3. Configure secrets *(only needed for git mirror)*
-
-**Settings → Secrets and variables → Actions → Secrets**:
-
-| Secret | Description |
-|--------|-------------|
-| `MIRROR_PUSH_TOKEN` | GitHub PAT with `repo` scope on `MIRROR_TARGET_REPO` |
-
-### 4. Run the first sync
+### 3. Run the first sync
 
 ```bash
 # Sync noble sources to the noble branch (creates it if it doesn't exist)
 gh workflow run fetch-source-pkg.yml \
   --repo qualcomm-linux/pkg-linux-qcom-canonical \
   --field series=noble
-
-# Or trigger a build manually from an existing series branch
-gh workflow run build-kernel.yml \
-  --repo qualcomm-linux/pkg-linux-qcom-canonical \
-  --field series=noble \
-  --field arch=arm64 \
-  --field flavor=generic
 ```
 
 ---
 
 ## Local usage
 
-All scripts run on Ubuntu 22.04 / 24.04.
+All scripts run on Ubuntu 24.04 arm64.
 
 ### Check the latest version
 
@@ -206,6 +219,8 @@ The Ubuntu kernel source package is a standard Debian 3.0 (quilt) source package
 `dpkg-source -x` applies all patches and produces the full source tree
 that is committed to the series branch.
 
+---
+
 ## Versioning scheme
 
 Ubuntu kernel versions follow `X.Y.Z-A.B`:
@@ -216,7 +231,7 @@ Ubuntu kernel versions follow `X.Y.Z-A.B`:
 | `A` | `51` | ABI number |
 | `B` | `52` | Upload number |
 
-Tags in this repository use `<series>-X.Y.Z-A.B`, e.g. `noble-6.8.0-51.52`.
+Tags use `<series>-X.Y.Z-A.B`, e.g. `noble-6.8.0-51.52`.
 
 ---
 
