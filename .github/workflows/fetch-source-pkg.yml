@@ -283,6 +283,16 @@ jobs:
             exit 1
           }
 
+          # Ensure debian/ symlink exists in the suite branch.
+          # The Ubuntu kernel source package does not include debian/ as a
+          # symlink in the .diff.gz — it is expected to be created at build
+          # time. We add it here so the noble branch is self-contained and
+          # the build can run without extra setup.
+          if [ ! -e suite-repo/debian ] && [ -d suite-repo/debian.master ]; then
+            ln -sf debian.master suite-repo/debian
+            echo "Created debian -> debian.master symlink in suite-repo"
+          fi
+
           cd suite-repo
 
           SYNC_DATE=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
