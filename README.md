@@ -103,12 +103,16 @@ and contain only the extracted kernel source tree.
 
 ## Upstream source
 
-| Resource | URL |
-|----------|-----|
-| Launchpad source packages | https://launchpad.net/ubuntu/noble/+source/linux |
-| Launchpad git repository | `https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/noble` |
+| Resource | URL pattern |
+|----------|-------------|
+| Launchpad source packages | `https://launchpad.net/ubuntu/<suite>/+source/linux` |
+| Launchpad git repository | `https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/<suite>` |
 | Launchpad REST API | https://api.launchpad.net/1.0/ |
 | GitHub Releases | https://github.com/qualcomm-linux/pkg-linux-qcom-canonical/releases |
+
+**Noble (current active suite):**
+- Source packages: https://launchpad.net/ubuntu/noble/+source/linux
+- Git repository: `https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/noble`
 
 ---
 
