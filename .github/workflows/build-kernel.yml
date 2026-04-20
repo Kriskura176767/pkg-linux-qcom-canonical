@@ -1,0 +1,197 @@
+# SPDX-License-Identifier: BSD-3-Clause
+#
+# build-kernel.yml
+#
+# Builds Ubuntu kernel .deb packages directly from a series branch
+# (e.g. "noble") that was populated by fetch-source-pkg.yml.
+#
+# Output .deb packages are stored in two places:
+#   1. GitHub Actions artifact  – attached to the workflow run, retained 90
+#      days, downloadable from Actions → <run> → Artifacts.
+#   2. GitHub Release asset     – attached to the <series>-<version> tag/release
+#      (e.g. noble-6.8.0-51.52) so they are permanently accessible from the
+#      Releases page of this repository.
+#
+# Triggers:
+#   • Automatic  – dispatched by fetch-source-pkg.yml on each new sync
+#   • Manual     – workflow_dispatch with configurable inputs
+
+name: "Build: Canonical Kernel .deb Packages"
+
+on:
+  workflow_dispatch:
+    inputs:
+      series:
+        description: "Series branch to build from (e.g. noble, questing, resolute)"
+        required: true
+        default: "noble"
+        type: string
+      kernel_version:
+        description: "Kernel version string (e.g. 6.8.0-51.52) – used for tagging artifacts"
+        required: false
+        type: string
+      arch:
+        description: "Target Debian architecture"
+        required: false
+        default: "arm64"
+        type: choice
+        options:
+          - arm64
+          - amd64
+      flavor:
+        description: "Kernel flavour to build"
+        required: false
+        default: "generic"
+        type: choice
+        options:
+          - generic
+          - lowlatency
+          - all
+
+permissions:
+  contents: write   # upload assets to release tag
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Job: build
+  # --------------------------------------------------------------------------
+  build:
+    name: "Build ${{ inputs.series }} ${{ inputs.flavor }} (${{ inputs.arch }})"
+    runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
+    timeout-minutes: 360
+
+    env:
+      SERIES:  ${{ inputs.series || 'noble' }}
+      ARCH:    ${{ inputs.arch   || 'arm64' }}
+      FLAVOR:  ${{ inputs.flavor || 'generic' }}
+
+    steps:
+      # -----------------------------------------------------------------------
+      # 1. Checkout the series branch (contains the full kernel source tree)
+      # -----------------------------------------------------------------------
+      - name: Checkout series branch (${{ inputs.series }})
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.series || 'noble' }}
+          path: kernel-src
+
+      # -----------------------------------------------------------------------
+      # 2. Install base build tools
+      # -----------------------------------------------------------------------
+      - name: Install base build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            fakeroot \
+            devscripts \
+            dpkg-dev \
+            debhelper \
+            dh-exec \
+            rsync
+
+      # -----------------------------------------------------------------------
+      # 3. Install kernel-specific build dependencies
+      # -----------------------------------------------------------------------
+      - name: Install kernel build dependencies
+        run: |
+          sudo apt-get build-dep -y kernel-src/
+
+      # -----------------------------------------------------------------------
+      # 4. Build (native arm64 – no cross-compilation needed)
+      # -----------------------------------------------------------------------
+      - name: Build kernel packages
+        run: |
+          JOBS=$(nproc)
+          echo "Building: series=${SERIES}  flavour=${FLAVOR}  arch=${ARCH}  jobs=${JOBS}"
+
+          # Determine debian/rules target
+          if [ "${FLAVOR}" = "all" ]; then
+            TARGET="binary"
+          else
+            TARGET="binary-${FLAVOR}"
+          fi
+
+          export DEB_BUILD_OPTIONS="parallel=${JOBS} nocheck"
+
+          (
+            cd kernel-src/
+            fakeroot debian/rules "${TARGET}"
+          )
+
+      # -----------------------------------------------------------------------
+      # 5. Collect output packages
+      #    The Ubuntu kernel build drops .deb files one level above the
+      #    source tree (i.e. in the working directory, not inside kernel-src/).
+      # -----------------------------------------------------------------------
+      - name: Collect built packages
+        run: |
+          mkdir -p output/
+
+          find . -maxdepth 1 \
+            \( -name "*.deb" -o -name "*.changes" -o -name "*.buildinfo" \) \
+            -exec cp {} output/ \;
+
+          echo "Built packages:"
+          ls -lh output/ || echo "(no files found)"
+
+      # -----------------------------------------------------------------------
+      # 6. Upload as workflow artifact (always available for 90 days)
+      # -----------------------------------------------------------------------
+      - name: Upload packages as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: "kernel-debs-${{ inputs.series }}-${{ inputs.arch }}-${{ inputs.flavor }}"
+          path: output/
+          retention-days: 90
+          if-no-files-found: warn
+
+      # -----------------------------------------------------------------------
+      # 7. Attach packages to the release tag (if kernel_version was provided)
+      # -----------------------------------------------------------------------
+      - name: Attach packages to release tag
+        if: inputs.kernel_version != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${SERIES}-${{ inputs.kernel_version }}"
+          DEBS=$(find output/ -name "*.deb" | sort)
+
+          if [ -z "${DEBS}" ]; then
+            echo "No .deb files to attach"
+            exit 0
+          fi
+
+          # Check if the tag/release exists before trying to upload
+          if gh release view "${TAG}" \
+               --repo "${{ github.repository }}" \
+               --json tagName -q .tagName \
+               >/dev/null 2>&1; then
+            echo "Attaching packages to release ${TAG}..."
+            echo "${DEBS}" | xargs gh release upload "${TAG}" \
+              --repo "${{ github.repository }}" \
+              --clobber
+            echo "Packages attached to ${TAG}"
+          else
+            echo "Release tag '${TAG}' not found – packages available as artifact only"
+          fi
+
+      # -----------------------------------------------------------------------
+      # 8. Summary
+      # -----------------------------------------------------------------------
+      - name: Print summary
+        if: always()
+        run: |
+          echo "## Kernel Build Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Series       | \`${SERIES}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Architecture | \`${ARCH}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Flavour      | \`${FLAVOR}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Runner       | \`${{ runner.name }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Built packages" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          ls -lh output/*.deb 2>/dev/null || echo "(none)"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

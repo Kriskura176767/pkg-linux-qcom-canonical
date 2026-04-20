@@ -1,0 +1,172 @@
+# SPDX-License-Identifier: BSD-3-Clause
+#
+# mirror-git.yml
+#
+# Optional workflow: mirrors the full Canonical Ubuntu kernel git repository
+# from Launchpad to a separate GitHub repository, preserving the complete
+# commit history from the Ubuntu kernel team.
+#
+# This is complementary to fetch-source-pkg.yml which commits one snapshot
+# per Canonical upload to a series branch in THIS repository.  The git mirror
+# gives you the full intermediate history (every commit the Ubuntu kernel team
+# made between uploads).
+#
+# Source : https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/<series>
+# Target : a separate GitHub repository configured via MIRROR_TARGET_REPO
+#
+# Required secret (Settings → Secrets → Actions):
+#   MIRROR_PUSH_TOKEN  – GitHub PAT (classic) with repo scope on the target
+#                        repository, OR a fine-grained PAT with
+#                        "Contents: Read and write" on that repository.
+#
+# Repository variables (Settings → Variables → Actions):
+#   MIRROR_TARGET_REPO – owner/repo of the GitHub mirror repository
+#                        (default: qualcomm-linux/linux-noble)
+#   KERNEL_SERIES      – Ubuntu series to mirror (default: noble)
+#
+# Note: the first run performs a full bare clone (~3–4 GB); subsequent runs
+# are incremental (fetch delta only).
+
+name: "Mirror: Canonical Kernel Git (Launchpad → GitHub)"
+
+on:
+  schedule:
+    # Run daily at 03:00 UTC – one hour before the source-sync job
+    - cron: "0 3 * * *"
+
+  workflow_dispatch:
+    inputs:
+      series:
+        description: "Ubuntu series to mirror (e.g. noble, questing, resolute)"
+        required: false
+        default: "noble"
+        type: string
+      force_push:
+        description: "Force-push all refs (use after target repo reset)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Job: mirror
+  # --------------------------------------------------------------------------
+  mirror:
+    name: "Sync Launchpad → GitHub (${{ inputs.series || vars.KERNEL_SERIES || 'noble' }})"
+    runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
+    timeout-minutes: 180   # bare clone of the full kernel tree can be slow
+
+    env:
+      SERIES:      ${{ inputs.series || vars.KERNEL_SERIES || 'noble' }}
+      TARGET_REPO: ${{ vars.MIRROR_TARGET_REPO || format('qualcomm-linux/linux-{0}', inputs.series || vars.KERNEL_SERIES || 'noble') }}
+
+    steps:
+      # -----------------------------------------------------------------------
+      # 1. Configure git
+      # -----------------------------------------------------------------------
+      - name: Configure git
+        run: |
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name  "github-actions[bot]"
+          git config --global advice.detachedHead false
+
+      # -----------------------------------------------------------------------
+      # 2. Decide: incremental sync (mirror already exists) or full clone
+      # -----------------------------------------------------------------------
+      - name: Check whether GitHub mirror already exists
+        id: check_mirror
+        env:
+          PUSH_TOKEN: ${{ secrets.MIRROR_PUSH_TOKEN }}
+        run: |
+          GITHUB_URL="https://x-access-token:${PUSH_TOKEN}@github.com/${TARGET_REPO}.git"
+          if git ls-remote --exit-code "${GITHUB_URL}" HEAD >/dev/null 2>&1; then
+            echo "exists=true"  >> "$GITHUB_OUTPUT"
+            echo "Mirror found at github.com/${TARGET_REPO}"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Mirror not found or empty – will do full clone"
+          fi
+
+      # -----------------------------------------------------------------------
+      # 3a. Incremental sync (subsequent runs)
+      #     Clone from GitHub (fast), fetch only new commits from Launchpad.
+      # -----------------------------------------------------------------------
+      - name: Incremental sync (clone GitHub mirror + fetch Launchpad delta)
+        if: steps.check_mirror.outputs.exists == 'true'
+        env:
+          PUSH_TOKEN: ${{ secrets.MIRROR_PUSH_TOKEN }}
+        run: |
+          GITHUB_URL="https://x-access-token:${PUSH_TOKEN}@github.com/${TARGET_REPO}.git"
+          LAUNCHPAD_URL="https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/${SERIES}"
+
+          echo "Cloning existing GitHub mirror (bare)..."
+          git clone --mirror "${GITHUB_URL}" linux.git
+
+          cd linux.git
+          echo "Fetching updates from Launchpad..."
+          git remote add launchpad "${LAUNCHPAD_URL}"
+          git fetch --all --prune launchpad
+
+          echo "Repository size after fetch:"
+          du -sh .
+
+      # -----------------------------------------------------------------------
+      # 3b. Full initial clone (first run only)
+      # -----------------------------------------------------------------------
+      - name: Full initial clone (from Launchpad)
+        if: steps.check_mirror.outputs.exists == 'false'
+        run: |
+          LAUNCHPAD_URL="https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/${SERIES}"
+
+          echo "Full bare clone from Launchpad (this may take 30–60 min)..."
+          git clone --mirror "${LAUNCHPAD_URL}" linux.git
+
+          echo "Repository size:"
+          du -sh linux.git/
+
+      # -----------------------------------------------------------------------
+      # 4. Push to GitHub
+      # -----------------------------------------------------------------------
+      - name: Push to GitHub mirror
+        env:
+          PUSH_TOKEN: ${{ secrets.MIRROR_PUSH_TOKEN }}
+        run: |
+          cd linux.git
+
+          GITHUB_URL="https://x-access-token:${PUSH_TOKEN}@github.com/${TARGET_REPO}.git"
+
+          # Normalise remote name to 'github'
+          if git remote get-url github >/dev/null 2>&1; then
+            git remote set-url github "${GITHUB_URL}"
+          elif git remote get-url origin >/dev/null 2>&1; then
+            git remote set-url origin "${GITHUB_URL}"
+            git remote rename origin github
+          else
+            git remote add github "${GITHUB_URL}"
+          fi
+
+          PUSH_FLAGS="--mirror"
+          if [ "${{ inputs.force_push }}" = "true" ]; then
+            echo "Force-push requested"
+          fi
+
+          echo "Pushing to github.com/${TARGET_REPO}..."
+          git push ${PUSH_FLAGS} github
+
+          echo "Mirror sync complete → github.com/${TARGET_REPO}"
+
+      # -----------------------------------------------------------------------
+      # 5. Summary
+      # -----------------------------------------------------------------------
+      - name: Print summary
+        if: always()
+        run: |
+          echo "## Git Mirror Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Series | \`${SERIES}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Source | \`git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/${SERIES}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Target | \`github.com/${TARGET_REPO}\` |" >> "$GITHUB_STEP_SUMMARY"
