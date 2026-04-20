@@ -51,7 +51,7 @@ jobs:
   # --------------------------------------------------------------------------
   check-version:
     name: "Check latest version on Launchpad"
-    runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 10
 
     outputs:
@@ -135,7 +135,7 @@ jobs:
   # --------------------------------------------------------------------------
   sync:
     name: "Sync ${{ needs.check-version.outputs.suite }} sources to branch"
-    runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 120
     needs: check-version
     if: needs.check-version.outputs.should_sync == 'true'
@@ -283,7 +283,7 @@ jobs:
   # --------------------------------------------------------------------------
   trigger-build:
     name: "Trigger kernel build"
-    runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
+    runs-on: ubuntu-24.04-arm
     needs: [check-version, sync]
     if: needs.sync.result == 'success'
 

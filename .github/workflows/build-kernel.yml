@@ -65,7 +65,7 @@ jobs:
   # --------------------------------------------------------------------------
   build:
     name: "Build ${{ inputs.suite }} ${{ inputs.flavor }} (${{ inputs.arch }}) [${{ inputs.build_mode || 'docker' }}]"
-    runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 360
 
     env:
@@ -76,7 +76,29 @@ jobs:
 
     steps:
       # -----------------------------------------------------------------------
-      # 1. Checkout the suite branch (contains the full kernel source tree)
+      # 1. Free up disk space
+      #    GitHub-hosted ubuntu-24.04-arm runners ship with ~14 GB free.
+      #    The kernel build needs ~20 GB; removing unused toolchains gives
+      #    enough headroom.
+      # -----------------------------------------------------------------------
+      - name: Free up runner disk space
+        run: |
+          echo "Disk before cleanup:"
+          df -h /
+          sudo rm -rf \
+            /usr/share/dotnet \
+            /usr/local/lib/android \
+            /opt/ghc \
+            /opt/hostedtoolcache/CodeQL \
+            /usr/local/share/boost \
+            "$AGENT_TOOLSDIRECTORY" \
+            2>/dev/null || true
+          sudo apt-get clean
+          echo "Disk after cleanup:"
+          df -h /
+
+      # -----------------------------------------------------------------------
+      # 2. Checkout the suite branch (contains the full kernel source tree)
       # -----------------------------------------------------------------------
       - name: Checkout suite branch (${{ inputs.suite || 'noble' }})
         uses: actions/checkout@v4
@@ -85,7 +107,7 @@ jobs:
           path: kernel-src
 
       # -----------------------------------------------------------------------
-      # 2. Extract org/repo for S3 upload path
+      # 3. Extract org/repo for S3 upload path
       # -----------------------------------------------------------------------
       - name: Extract org and repo name
         run: |
@@ -93,7 +115,7 @@ jobs:
           echo "REPO_NAME=${GITHUB_REPOSITORY#*/}"  >> "$GITHUB_ENV"
 
       # -----------------------------------------------------------------------
-      # 3. Checkout docker-pkg-build (docker mode only)
+      # 4. Checkout docker-pkg-build (docker mode only)
       # -----------------------------------------------------------------------
       - name: Checkout docker-pkg-build
         if: env.BUILD_MODE == 'docker'
@@ -104,7 +126,7 @@ jobs:
           path: docker-pkg-build
 
       # -----------------------------------------------------------------------
-      # 4. Build the suite-matched pkg-builder docker image (docker mode only)
+      # 5. Build the suite-matched pkg-builder docker image (docker mode only)
       # -----------------------------------------------------------------------
       - name: Build docker image for suite (${{ inputs.suite || 'noble' }})
         if: env.BUILD_MODE == 'docker'
@@ -113,7 +135,7 @@ jobs:
           docker image ls
 
       # -----------------------------------------------------------------------
-      # 5a. Build kernel packages inside the suite-matched container (docker)
+      # 6a. Build kernel packages inside the suite-matched container (docker)
       #     The workspace is bind-mounted so output .deb files land on the host.
       # -----------------------------------------------------------------------
       - name: Build kernel packages (docker – ghcr.io/qualcomm-linux/pkg-builder:${{ inputs.suite || 'noble' }})
@@ -138,7 +160,7 @@ jobs:
             "
 
       # -----------------------------------------------------------------------
-      # 5b. Build kernel packages natively on the runner (native mode)
+      # 6b. Build kernel packages natively on the runner (native mode)
       # -----------------------------------------------------------------------
       - name: Install build tools (native mode)
         if: env.BUILD_MODE == 'native'
@@ -160,7 +182,7 @@ jobs:
           (cd kernel-src/ && fakeroot debian/rules "${TARGET}")
 
       # -----------------------------------------------------------------------
-      # 6. Collect output packages
+      # 7. Collect output packages
       #    The Ubuntu kernel build drops .deb files one level above the
       #    source tree (i.e. in GITHUB_WORKSPACE, not inside kernel-src/).
       # -----------------------------------------------------------------------
@@ -176,9 +198,10 @@ jobs:
           ls -lh output/ || echo "(no files found)"
 
       # -----------------------------------------------------------------------
-      # 7. Upload to S3 (permanent storage)
+      # 8. Upload to S3 (permanent storage, self-hosted runner only)
       # -----------------------------------------------------------------------
       - name: Upload kernel .deb packages to S3
+        continue-on-error: true
         uses: qualcomm-linux/upload-private-artifact-action@aws
         with:
           s3_bucket: qli-prd-lecore-gh-artifacts
@@ -186,7 +209,7 @@ jobs:
           destination: ${{ env.ORG_NAME }}/pkg/temp/${{ env.REPO_NAME }}/${{ github.run_id }}-${{ github.run_attempt }}/
 
       # -----------------------------------------------------------------------
-      # 8. Upload as GitHub Actions artifact (90-day fallback)
+      # 9. Upload as GitHub Actions artifact (90-day fallback)
       # -----------------------------------------------------------------------
       - name: Upload packages as artifact
         uses: actions/upload-artifact@v4
@@ -197,7 +220,7 @@ jobs:
           if-no-files-found: warn
 
       # -----------------------------------------------------------------------
-      # 9. Attach packages to the release tag (if kernel_version was provided)
+      # 10. Attach packages to the release tag (if kernel_version was provided)
       # -----------------------------------------------------------------------
       - name: Attach packages to release tag
         if: inputs.kernel_version != ''
@@ -226,7 +249,7 @@ jobs:
           fi
 
       # -----------------------------------------------------------------------
-      # 10. Summary
+      # 11. Summary
       # -----------------------------------------------------------------------
       - name: Print summary
         if: always()
