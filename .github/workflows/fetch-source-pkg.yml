@@ -152,7 +152,26 @@ jobs:
 
     steps:
       # -----------------------------------------------------------------------
-      # 1. Checkout main branch to get the helper scripts
+      # 1. Free up disk space (GitHub-hosted runners have ~14 GB free)
+      # -----------------------------------------------------------------------
+      - name: Free up runner disk space
+        run: |
+          echo "Disk before cleanup:"
+          df -h /
+          sudo rm -rf \
+            /usr/share/dotnet \
+            /usr/local/lib/android \
+            /opt/ghc \
+            /opt/hostedtoolcache/CodeQL \
+            /usr/local/share/boost \
+            "$AGENT_TOOLSDIRECTORY" \
+            2>/dev/null || true
+          sudo apt-get clean
+          echo "Disk after cleanup:"
+          df -h /
+
+      # -----------------------------------------------------------------------
+      # 2. Checkout main branch to get the helper scripts
       # -----------------------------------------------------------------------
       - name: Checkout main (for scripts)
         uses: actions/checkout@v4
@@ -161,7 +180,7 @@ jobs:
           path: ci
 
       # -----------------------------------------------------------------------
-      # 2. Install tools
+      # 3. Install tools
       # -----------------------------------------------------------------------
       - name: Install dependencies
         run: |
@@ -170,7 +189,7 @@ jobs:
             curl jq devscripts dpkg-dev quilt rsync patch
 
       # -----------------------------------------------------------------------
-      # 3. Download source package from Launchpad
+      # 4. Download source package from Launchpad
       # -----------------------------------------------------------------------
       - name: Fetch source package from Launchpad
         run: |
@@ -181,13 +200,21 @@ jobs:
           ls -lh source-pkg/
 
       # -----------------------------------------------------------------------
-      # 4. Extract source package (applies all Ubuntu patches via quilt)
+      # 5. Extract source package
       # -----------------------------------------------------------------------
       - name: Extract source package
         run: |
           DSC=$(find source-pkg/ -name "*.dsc" | sort -V | tail -1)
           echo "Extracting: ${DSC}"
-          dpkg-source -x "${DSC}" kernel-src/
+          # --no-check skips GPG signature verification (key not in runner keyring)
+          # Redirect verbose "upstream files modified" list to log file
+          dpkg-source --no-check -x "${DSC}" kernel-src/ \
+            > /tmp/dpkg-source.log 2>&1 || {
+            echo "dpkg-source -x failed. Last 30 lines of output:"
+            tail -30 /tmp/dpkg-source.log
+            exit 1
+          }
+          echo "Extraction complete"
 
           SRC_DIR=$(find kernel-src/ -maxdepth 1 -mindepth 1 -type d | head -1)
           [ -n "${SRC_DIR}" ] || { echo "ERROR: dpkg-source -x produced no directory"; exit 1; }
@@ -209,7 +236,7 @@ jobs:
           ls "${SRC_DIR}/"
 
       # -----------------------------------------------------------------------
-      # 5. Configure git
+      # 6. Configure git
       # -----------------------------------------------------------------------
       - name: Configure git identity
         run: |
@@ -217,7 +244,7 @@ jobs:
           git config --global user.name  "github-actions[bot]"
 
       # -----------------------------------------------------------------------
-      # 6. Prepare the suite branch
+      # 7. Prepare the suite branch
       # -----------------------------------------------------------------------
       - name: Clone repository for suite branch update
         env:
