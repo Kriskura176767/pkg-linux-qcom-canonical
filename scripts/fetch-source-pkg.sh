@@ -50,10 +50,15 @@ API_URL+="&order_by_date=true"
 RESPONSE=$(curl -fsSL "${API_URL}") \
   || die "Launchpad API request failed: ${API_URL}"
 
-VERSION=$(echo "$RESPONSE"   | jq -r '.entries[0].source_package_version // empty')
-SELF_LINK=$(echo "$RESPONSE" | jq -r '.entries[0].self_link // empty')
+# Filter by exact source_package_name (source_name= is a prefix match on Launchpad)
+VERSION=$(echo "$RESPONSE" | jq -r \
+  --arg name "${SOURCE_NAME}" \
+  '[.entries[] | select(.source_package_name == $name)] | .[0].source_package_version // empty')
+SELF_LINK=$(echo "$RESPONSE" | jq -r \
+  --arg name "${SOURCE_NAME}" \
+  '[.entries[] | select(.source_package_name == $name)] | .[0].self_link // empty')
 
-[ -n "$VERSION"   ] || die "No published source found for '${SOURCE_NAME}' in '${SUITE}'"
+[ -n "$VERSION"   ] || die "No published source found for '${SOURCE_NAME}' (exact) in '${SUITE}'"
 [ -n "$SELF_LINK" ] || die "Could not retrieve self_link for '${SOURCE_NAME}' ${VERSION}"
 
 # Upstream version: strip Ubuntu revision suffix (e.g. "6.8.0-51.52" → "6.8.0")

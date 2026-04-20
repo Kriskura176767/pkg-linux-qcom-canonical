@@ -34,8 +34,11 @@ RESPONSE=$(curl -fsSL \
 &order_by_date=true") \
   || die "Failed to query Launchpad API"
 
-VERSION=$(echo "$RESPONSE" | jq -r '.entries[0].source_package_version // empty')
+# Filter by exact source_package_name (source_name= is a prefix match on Launchpad)
+VERSION=$(echo "$RESPONSE" | jq -r \
+  --arg name "${SOURCE_NAME}" \
+  '[.entries[] | select(.source_package_name == $name)] | .[0].source_package_version // empty')
 
-[ -n "$VERSION" ] || die "No published source found for '${SOURCE_NAME}' in '${SUITE}'"
+[ -n "$VERSION" ] || die "No exact match for '${SOURCE_NAME}' in '${SUITE}'"
 
 echo "${VERSION}"

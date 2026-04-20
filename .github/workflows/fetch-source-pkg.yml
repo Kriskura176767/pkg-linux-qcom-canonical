@@ -85,9 +85,12 @@ jobs:
           echo "Querying: ${API}"
           RESP=$(curl -fsSL "${API}")
 
-          VERSION=$(echo "$RESP" | jq -r '.entries[0].source_package_version // empty')
+          # Filter by exact source_package_name (source_name= is a prefix match)
+          VERSION=$(echo "$RESP" | jq -r \
+            --arg name "${SOURCE}" \
+            '[.entries[] | select(.source_package_name == $name)] | .[0].source_package_version // empty')
           [ -n "${VERSION}" ] || {
-            echo "ERROR: No version found for ${SOURCE} in ${SUITE}" >&2
+            echo "ERROR: No exact match for '${SOURCE}' in ${SUITE}" >&2
             exit 1
           }
 
