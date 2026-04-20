@@ -252,6 +252,19 @@ The Ubuntu Noble kernel source package uses **Debian source format 1.0**:
 `dpkg-source --no-check -x` applies the diff to the orig tarball and
 produces the full patched source tree, which is committed to the suite branch.
 
+**Extracted source tree layout (noble branch):**
+
+```
+arch/           drivers/        fs/             kernel/
+debian          → debian.master/ (symlink, may need recreating after git checkout)
+debian.master/  ← Ubuntu packaging: rules, control, changelog, configs
+Makefile        net/            scripts/        ...
+```
+
+The Ubuntu kernel uses `debian.master/` as the actual packaging directory.
+`debian/` is a symlink to it. The build workflow automatically recreates
+the symlink if git did not preserve it.
+
 > **Note**: The Launchpad API `source_name=` parameter does prefix matching.
 > The workflow uses an exact `source_package_name` filter in jq to ensure
 > `linux` is fetched and not `linux-meta-raspi` or other `linux-*` packages.
