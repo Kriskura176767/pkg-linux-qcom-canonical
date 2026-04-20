@@ -4,10 +4,10 @@
 # check-version.sh - Query the latest published kernel version from Launchpad
 #
 # Usage:
-#   check-version.sh [SERIES] [SOURCE_NAME]
+#   check-version.sh [SUITE] [SOURCE_NAME]
 #
 # Arguments:
-#   SERIES       Ubuntu series (default: noble)
+#   SUITE        Ubuntu suite (default: noble)
 #   SOURCE_NAME  Source package name (default: linux)
 #
 # Output:
@@ -19,7 +19,7 @@
 
 set -euo pipefail
 
-SERIES="${1:-noble}"
+SUITE="${1:-noble}"
 SOURCE_NAME="${2:-linux}"
 
 LAUNCHPAD_API="https://api.launchpad.net/1.0"
@@ -29,13 +29,13 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 RESPONSE=$(curl -fsSL \
   "${LAUNCHPAD_API}/ubuntu/+archive/primary?ws.op=getPublishedSources\
 &source_name=${SOURCE_NAME}\
-&distro_series=/ubuntu/${SERIES}\
+&distro_series=/ubuntu/${SUITE}\
 &status=Published\
 &order_by_date=true") \
   || die "Failed to query Launchpad API"
 
 VERSION=$(echo "$RESPONSE" | jq -r '.entries[0].source_package_version // empty')
 
-[ -n "$VERSION" ] || die "No published source found for '${SOURCE_NAME}' in '${SERIES}'"
+[ -n "$VERSION" ] || die "No published source found for '${SOURCE_NAME}' in '${SUITE}'"
 
 echo "${VERSION}"

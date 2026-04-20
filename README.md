@@ -66,8 +66,8 @@ pkg-linux-qcom-canonical
 │
 ├── main branch
 │   ├── .github/workflows/
-│   │   ├── fetch-source-pkg.yml   ← sync Launchpad sources → series branch
-│   │   └── build-kernel.yml       ← build .deb packages from series branch
+│   │   ├── fetch-source-pkg.yml   ← sync Launchpad sources → suite branch
+│   │   └── build-kernel.yml       ← build .deb packages from suite branch
 │   ├── scripts/
 │   │   ├── check-version.sh       ← query latest version from Launchpad
 │   │   ├── fetch-source-pkg.sh    ← download source package files
@@ -79,12 +79,12 @@ pkg-linux-qcom-canonical
 │       One commit per Canonical upload
 │       Tagged noble-6.8.0-51.52, noble-6.8.0-52.53, …
 │
-└── <series> branch  (orphan, added on demand)
-    └── Full kernel source for that series
+└── <suite> branch  (orphan, added on demand)
+    └── Full kernel source for that suite
         e.g. questing, resolute
 ```
 
-Series branches are **orphan branches** — they share no history with `main`
+Suite branches are **orphan branches** — they share no history with `main`
 and contain only the extracted kernel source tree.
 
 ---
@@ -107,7 +107,7 @@ and contain only the extracted kernel source tree.
 Queries the Launchpad REST API for the latest published `linux` source
 package, downloads the `.dsc` + tarballs, extracts the full source tree
 with `dpkg-source -x` (applying all Ubuntu patches), and commits the
-result to the corresponding series branch.
+result to the corresponding suite branch.
 
 **Schedule**: daily at **04:00 UTC**  
 **Manual trigger**: `Actions → Sync: Canonical Kernel Sources to Branch → Run workflow`
@@ -116,7 +116,7 @@ result to the corresponding series branch.
 
 | Input | Default | Description |
 |-------|---------|-------------|
-| `series` | `noble` | Ubuntu series to sync — one series per run |
+| `suite` | `noble` | Ubuntu suite to sync — one suite per run |
 | `force` | `false` | Re-sync even if tag already exists |
 
 **Idempotent**: checks for the tag before downloading anything.  
@@ -126,7 +126,7 @@ result to the corresponding series branch.
 
 ### `build-kernel.yml` — Build .deb packages
 
-Checks out the series branch (full kernel source tree) and builds `.deb`
+Checks out the suite branch (full kernel source tree) and builds `.deb`
 packages using the Ubuntu `debian/rules` build system on the native arm64
 self-hosted runner.
 
@@ -137,7 +137,7 @@ manually via `Actions → Build: Canonical Kernel .deb Packages → Run workflow
 
 | Input | Default | Description |
 |-------|---------|-------------|
-| `series` | `noble` | Series branch to build from |
+| `suite` | `noble` | Suite branch to build from |
 | `kernel_version` | — | Version string for release asset attachment |
 | `arch` | `arm64` | Target architecture |
 | `flavor` | `generic` | Kernel flavour: `generic`, `lowlatency`, or `all` |
@@ -166,7 +166,7 @@ Go to **Actions** and enable workflows if prompted.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `KERNEL_SERIES` | `noble` | Default series for scheduled runs |
+| `KERNEL_SUITE` | `noble` | Default suite for scheduled runs |
 | `KERNEL_SOURCE` | `linux` | Source package name |
 
 ### 3. Run the first sync
@@ -175,7 +175,7 @@ Go to **Actions** and enable workflows if prompted.
 # Sync noble sources to the noble branch (creates it if it doesn't exist)
 gh workflow run fetch-source-pkg.yml \
   --repo qualcomm-linux/pkg-linux-qcom-canonical \
-  --field series=noble
+  --field suite=noble
 ```
 
 ---
@@ -217,7 +217,7 @@ The Ubuntu kernel source package is a standard Debian 3.0 (quilt) source package
 | `linux_X.Y.Z-A.B.debian.tar.xz` | ~5 MB | Ubuntu packaging overlay + patches |
 
 `dpkg-source -x` applies all patches and produces the full source tree
-that is committed to the series branch.
+that is committed to the suite branch.
 
 ---
 
@@ -231,25 +231,25 @@ Ubuntu kernel versions follow `X.Y.Z-A.B`:
 | `A` | `51` | ABI number |
 | `B` | `52` | Upload number |
 
-Tags use `<series>-X.Y.Z-A.B`, e.g. `noble-6.8.0-51.52`.
+Tags use `<suite>-X.Y.Z-A.B`, e.g. `noble-6.8.0-51.52`.
 
 ---
 
-## Supported series
+## Supported suites
 
-| Series | Codename | Status | Kernel |
-|--------|----------|--------|--------|
+| Suite | Codename | Status | Kernel |
+|-------|----------|--------|--------|
 | `noble` | Noble Numbat | 24.04 LTS — **active** | 6.8 |
 | `questing` | Questing Quokka | 25.04 — add when available | TBD |
 | `resolute` | Resolute Ringtail | 25.10 — add when available | TBD |
 
-To add a new series, trigger `fetch-source-pkg.yml` with the desired
-`series` input — the branch and release tag are created automatically:
+To add a new suite, trigger `fetch-source-pkg.yml` with the desired
+`suite` input — the branch and release tag are created automatically:
 
 ```bash
 gh workflow run fetch-source-pkg.yml \
   --repo qualcomm-linux/pkg-linux-qcom-canonical \
-  --field series=questing
+  --field suite=questing
 ```
 
 ---

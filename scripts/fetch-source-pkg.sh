@@ -5,10 +5,10 @@
 #                       from Launchpad
 #
 # Usage:
-#   fetch-source-pkg.sh [SERIES] [SOURCE_NAME] [OUTPUT_DIR]
+#   fetch-source-pkg.sh [SUITE] [SOURCE_NAME] [OUTPUT_DIR]
 #
 # Arguments:
-#   SERIES       Ubuntu series (default: noble)
+#   SUITE        Ubuntu suite (default: noble)
 #   SOURCE_NAME  Source package name (default: linux)
 #   OUTPUT_DIR   Directory to write files into (default: .)
 #
@@ -21,7 +21,7 @@
 
 set -euo pipefail
 
-SERIES="${1:-noble}"
+SUITE="${1:-noble}"
 SOURCE_NAME="${2:-linux}"
 OUTPUT_DIR="${3:-.}"
 
@@ -38,12 +38,12 @@ hr()   { log "$(printf '%0.s─' {1..60})"; }
 # 1. Query Launchpad for the latest published source
 # ---------------------------------------------------------------------------
 hr
-log "Querying Launchpad for latest '${SOURCE_NAME}' in Ubuntu ${SERIES}..."
+log "Querying Launchpad for latest '${SOURCE_NAME}' in Ubuntu ${SUITE}..."
 
 API_URL="${LAUNCHPAD_API}/ubuntu/+archive/primary"
 API_URL+="?ws.op=getPublishedSources"
 API_URL+="&source_name=${SOURCE_NAME}"
-API_URL+="&distro_series=/ubuntu/${SERIES}"
+API_URL+="&distro_series=/ubuntu/${SUITE}"
 API_URL+="&status=Published"
 API_URL+="&order_by_date=true"
 
@@ -53,7 +53,7 @@ RESPONSE=$(curl -fsSL "${API_URL}") \
 VERSION=$(echo "$RESPONSE"   | jq -r '.entries[0].source_package_version // empty')
 SELF_LINK=$(echo "$RESPONSE" | jq -r '.entries[0].self_link // empty')
 
-[ -n "$VERSION"   ] || die "No published source found for '${SOURCE_NAME}' in '${SERIES}'"
+[ -n "$VERSION"   ] || die "No published source found for '${SOURCE_NAME}' in '${SUITE}'"
 [ -n "$SELF_LINK" ] || die "Could not retrieve self_link for '${SOURCE_NAME}' ${VERSION}"
 
 # Upstream version: strip Ubuntu revision suffix (e.g. "6.8.0-51.52" → "6.8.0")
@@ -103,7 +103,7 @@ hr
 VERSION_ENV="${OUTPUT_DIR}/version.env"
 cat > "${VERSION_ENV}" <<EOF
 SOURCE_NAME=${SOURCE_NAME}
-SERIES=${SERIES}
+SUITE=${SUITE}
 VERSION=${VERSION}
 UPSTREAM_VERSION=${UPSTREAM_VERSION}
 LAUNCHPAD_SELF_LINK=${SELF_LINK}

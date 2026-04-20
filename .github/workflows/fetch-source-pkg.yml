@@ -4,22 +4,22 @@
 #
 # Fetches the latest Canonical Ubuntu kernel source package from Launchpad,
 # extracts it with dpkg-source, and commits the full source tree to a branch
-# named after the Ubuntu series (e.g. "noble", "questing").
+# named after the Ubuntu suite (e.g. "noble", "questing").
 #
 # Repository branch layout
 # ─────────────────────────
 #   main          – CI infrastructure: workflows, scripts, documentation
 #   noble         – Ubuntu Noble (24.04 LTS) kernel source, one commit/upload
-#   <series>      – additional series added on demand (questing, resolute, …)
+#   <suite>       – additional suites added on demand (questing, resolute, …)
 #
-# Each commit on a series branch is tagged  <series>-<version>
+# Each commit on a suite branch is tagged  <suite>-<version>
 # (e.g.  noble-6.8.0-51.52).
 #
 # The workflow is idempotent: if the tag already exists it exits cleanly.
 # On success it automatically dispatches build-kernel.yml.
 #
 # Repository variables (Settings → Variables → Actions):
-#   KERNEL_SERIES  – default series to sync when not specified (default: noble)
+#   KERNEL_SUITE   – default suite to sync when not specified (default: noble)
 #   KERNEL_SOURCE  – source package name (default: linux)
 
 name: "Sync: Canonical Kernel Sources to Branch"
@@ -31,8 +31,8 @@ on:
 
   workflow_dispatch:
     inputs:
-      series:
-        description: "Ubuntu series to sync (e.g. noble, questing, resolute)"
+      suite:
+        description: "Ubuntu suite to sync (e.g. noble, questing, resolute)"
         required: false
         default: "noble"
         type: string
@@ -42,7 +42,7 @@ on:
         default: false
 
 permissions:
-  contents: write   # push to series branch + create tags
+  contents: write   # push to suite branch + create tags
 
 jobs:
   # --------------------------------------------------------------------------
@@ -58,7 +58,7 @@ jobs:
       version:          ${{ steps.query.outputs.version }}
       upstream_version: ${{ steps.query.outputs.upstream_version }}
       tag:              ${{ steps.query.outputs.tag }}
-      series:           ${{ steps.query.outputs.series }}
+      suite:            ${{ steps.query.outputs.suite }}
       source:           ${{ steps.query.outputs.source }}
       should_sync:      ${{ steps.gate.outputs.should_sync }}
 
@@ -72,13 +72,13 @@ jobs:
       - name: Query Launchpad for latest published source
         id: query
         env:
-          SERIES: ${{ inputs.series || vars.KERNEL_SERIES || 'noble' }}
+          SUITE:  ${{ inputs.suite || vars.KERNEL_SUITE || 'noble' }}
           SOURCE: ${{ vars.KERNEL_SOURCE || 'linux' }}
         run: |
           API="https://api.launchpad.net/1.0/ubuntu/+archive/primary"
           API+="?ws.op=getPublishedSources"
           API+="&source_name=${SOURCE}"
-          API+="&distro_series=/ubuntu/${SERIES}"
+          API+="&distro_series=/ubuntu/${SUITE}"
           API+="&status=Published"
           API+="&order_by_date=true"
 
@@ -87,20 +87,20 @@ jobs:
 
           VERSION=$(echo "$RESP" | jq -r '.entries[0].source_package_version // empty')
           [ -n "${VERSION}" ] || {
-            echo "ERROR: No version found for ${SOURCE} in ${SERIES}" >&2
+            echo "ERROR: No version found for ${SOURCE} in ${SUITE}" >&2
             exit 1
           }
 
           UPSTREAM=$(echo "${VERSION}" | cut -d'-' -f1)
-          TAG="${SERIES}-${VERSION}"
+          TAG="${SUITE}-${VERSION}"
 
           echo "version=${VERSION}"           >> "$GITHUB_OUTPUT"
           echo "upstream_version=${UPSTREAM}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG}"                   >> "$GITHUB_OUTPUT"
-          echo "series=${SERIES}"             >> "$GITHUB_OUTPUT"
+          echo "suite=${SUITE}"               >> "$GITHUB_OUTPUT"
           echo "source=${SOURCE}"             >> "$GITHUB_OUTPUT"
 
-          echo "Series  : ${SERIES}"
+          echo "Suite   : ${SUITE}"
           echo "Version : ${VERSION}"
           echo "Tag     : ${TAG}"
 
@@ -130,11 +130,11 @@ jobs:
 
   # --------------------------------------------------------------------------
   # Job 2: sync
-  #   Downloads the source package, extracts it, and commits to the series
+  #   Downloads the source package, extracts it, and commits to the suite
   #   branch.
   # --------------------------------------------------------------------------
   sync:
-    name: "Sync ${{ needs.check-version.outputs.series }} sources to branch"
+    name: "Sync ${{ needs.check-version.outputs.suite }} sources to branch"
     runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
     timeout-minutes: 120
     needs: check-version
@@ -144,7 +144,7 @@ jobs:
       VERSION:          ${{ needs.check-version.outputs.version }}
       UPSTREAM_VERSION: ${{ needs.check-version.outputs.upstream_version }}
       TAG:              ${{ needs.check-version.outputs.tag }}
-      SERIES:           ${{ needs.check-version.outputs.series }}
+      SUITE:            ${{ needs.check-version.outputs.suite }}
       SOURCE:           ${{ needs.check-version.outputs.source }}
 
     steps:
@@ -172,7 +172,7 @@ jobs:
       - name: Fetch source package from Launchpad
         run: |
           chmod +x ci/scripts/fetch-source-pkg.sh
-          ci/scripts/fetch-source-pkg.sh "${SERIES}" "${SOURCE}" source-pkg/
+          ci/scripts/fetch-source-pkg.sh "${SUITE}" "${SOURCE}" source-pkg/
 
           echo "Downloaded files:"
           ls -lh source-pkg/
@@ -186,7 +186,6 @@ jobs:
           echo "Extracting: ${DSC}"
           dpkg-source -x "${DSC}" kernel-src/
 
-          # The extracted directory is named linux-<upstream_version>
           SRC_DIR=$(find kernel-src/ -maxdepth 1 -mindepth 1 -type d | head -1)
           echo "Extracted to: ${SRC_DIR}"
           echo "SRC_DIR=${SRC_DIR}" >> "$GITHUB_ENV"
@@ -203,70 +202,65 @@ jobs:
           git config --global user.name  "github-actions[bot]"
 
       # -----------------------------------------------------------------------
-      # 6. Prepare the series branch
-      #    Clone the repo, check out (or create) the series branch, wipe it,
-      #    populate with the freshly extracted source, commit, tag, push.
+      # 6. Prepare the suite branch
       # -----------------------------------------------------------------------
-      - name: Clone repository for series branch update
+      - name: Clone repository for suite branch update
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           REPO_URL="https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
-          git clone "${REPO_URL}" series-repo
+          git clone "${REPO_URL}" suite-repo
 
-      - name: Check out or create series branch
+      - name: Check out or create suite branch
         run: |
-          cd series-repo
+          cd suite-repo
 
-          if git ls-remote --exit-code origin "refs/heads/${SERIES}" >/dev/null 2>&1; then
-            echo "Branch '${SERIES}' exists – checking out"
-            git checkout "${SERIES}"
-            # Remove all existing content so we get a clean slate
+          if git ls-remote --exit-code origin "refs/heads/${SUITE}" >/dev/null 2>&1; then
+            echo "Branch '${SUITE}' exists – checking out"
+            git checkout "${SUITE}"
             git rm -rf --quiet . 2>/dev/null || true
           else
-            echo "Branch '${SERIES}' does not exist – creating orphan branch"
-            git checkout --orphan "${SERIES}"
+            echo "Branch '${SUITE}' does not exist – creating orphan branch"
+            git checkout --orphan "${SUITE}"
             git rm -rf --quiet . 2>/dev/null || true
           fi
 
-      - name: Populate series branch with extracted source
+      - name: Populate suite branch with extracted source
         run: |
-          echo "Copying source tree from ${SRC_DIR} → series-repo/"
-          # rsync preserves permissions and handles large trees efficiently
+          echo "Copying source tree from ${SRC_DIR} → suite-repo/"
           rsync -a --delete \
             --exclude='.git' \
-            "${SRC_DIR}/" series-repo/
+            "${SRC_DIR}/" suite-repo/
 
-          cd series-repo
+          cd suite-repo
 
-          # Write commit message to a file to avoid shell/YAML quoting issues
           SYNC_DATE=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
           printf '%s\n\n%s\n%s\n%s\n%s\n%s\n' \
-            "${SERIES}: ${VERSION}" \
-            "Ubuntu series  : ${SERIES}" \
+            "${SUITE}: ${VERSION}" \
+            "Ubuntu suite   : ${SUITE}" \
             "Kernel version : ${VERSION}" \
             "Upstream       : ${UPSTREAM_VERSION}" \
-            "Source         : https://launchpad.net/ubuntu/${SERIES}/+source/${SOURCE}/${VERSION}" \
+            "Source         : https://launchpad.net/ubuntu/${SUITE}/+source/${SOURCE}/${VERSION}" \
             "Synced         : ${SYNC_DATE}" \
             > /tmp/commit-msg.txt
 
           git add --all
           git commit -F /tmp/commit-msg.txt
 
-          echo "Committed ${SERIES} branch at $(git rev-parse HEAD)"
+          echo "Committed ${SUITE} branch at $(git rev-parse HEAD)"
 
       - name: Tag the commit
         run: |
-          cd series-repo
-          git tag -a "${TAG}" -m "Ubuntu ${SERIES} kernel ${VERSION}"
+          cd suite-repo
+          git tag -a "${TAG}" -m "Ubuntu ${SUITE} kernel ${VERSION}"
           echo "Tagged: ${TAG}"
 
-      - name: Push series branch and tag
+      - name: Push suite branch and tag
         run: |
-          cd series-repo
-          git push origin "${SERIES}"
+          cd suite-repo
+          git push origin "${SUITE}"
           git push origin "${TAG}"
-          echo "Pushed branch '${SERIES}' and tag '${TAG}'"
+          echo "Pushed branch '${SUITE}' and tag '${TAG}'"
 
       # -----------------------------------------------------------------------
       # 7. Summary
@@ -278,15 +272,14 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
           echo "|-------|-------|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Series   | \`${SERIES}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Suite    | \`${SUITE}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Version  | \`${VERSION}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Branch   | [\`${SERIES}\`](https://github.com/${{ github.repository }}/tree/${SERIES}) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Branch   | [\`${SUITE}\`](https://github.com/${{ github.repository }}/tree/${SUITE}) |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Tag      | [\`${TAG}\`](https://github.com/${{ github.repository }}/releases/tag/${TAG}) |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Launchpad | https://launchpad.net/ubuntu/${SERIES}/+source/${SOURCE}/${VERSION} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Launchpad | https://launchpad.net/ubuntu/${SUITE}/+source/${SOURCE}/${VERSION} |" >> "$GITHUB_STEP_SUMMARY"
 
   # --------------------------------------------------------------------------
   # Job 3: trigger-build
-  #   Dispatches build-kernel.yml for the newly synced version.
   # --------------------------------------------------------------------------
   trigger-build:
     name: "Trigger kernel build"
@@ -298,14 +291,14 @@ jobs:
       - name: Dispatch build-kernel workflow
         env:
           GH_TOKEN: ${{ github.token }}
-          SERIES:   ${{ needs.check-version.outputs.series }}
+          SUITE:    ${{ needs.check-version.outputs.suite }}
           VERSION:  ${{ needs.check-version.outputs.version }}
         run: |
           gh workflow run build-kernel.yml \
             --repo "${{ github.repository }}" \
-            --field series="${SERIES}" \
+            --field suite="${SUITE}" \
             --field kernel_version="${VERSION}" \
             --field arch="arm64" \
             --field flavor="generic"
 
-          echo "Build workflow dispatched for ${SERIES} ${VERSION}"
+          echo "Build workflow dispatched for ${SUITE} ${VERSION}"

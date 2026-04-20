@@ -2,13 +2,13 @@
 #
 # build-kernel.yml
 #
-# Builds Ubuntu kernel .deb packages directly from a series branch
+# Builds Ubuntu kernel .deb packages directly from a suite branch
 # (e.g. "noble") that was populated by fetch-source-pkg.yml.
 #
 # Output .deb packages are stored in two places:
 #   1. GitHub Actions artifact  – attached to the workflow run, retained 90
 #      days, downloadable from Actions → <run> → Artifacts.
-#   2. GitHub Release asset     – attached to the <series>-<version> tag/release
+#   2. GitHub Release asset     – attached to the <suite>-<version> tag/release
 #      (e.g. noble-6.8.0-51.52) so they are permanently accessible from the
 #      Releases page of this repository.
 #
@@ -21,13 +21,13 @@ name: "Build: Canonical Kernel .deb Packages"
 on:
   workflow_dispatch:
     inputs:
-      series:
-        description: "Series branch to build from (e.g. noble, questing, resolute)"
+      suite:
+        description: "Suite branch to build from (e.g. noble, questing, resolute)"
         required: true
         default: "noble"
         type: string
       kernel_version:
-        description: "Kernel version string (e.g. 6.8.0-51.52) – used for tagging artifacts"
+        description: "Kernel version string (e.g. 6.8.0-51.52) – used for release asset attachment"
         required: false
         type: string
       arch:
@@ -56,23 +56,23 @@ jobs:
   # Job: build
   # --------------------------------------------------------------------------
   build:
-    name: "Build ${{ inputs.series }} ${{ inputs.flavor }} (${{ inputs.arch }})"
+    name: "Build ${{ inputs.suite }} ${{ inputs.flavor }} (${{ inputs.arch }})"
     runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
     timeout-minutes: 360
 
     env:
-      SERIES:  ${{ inputs.series || 'noble' }}
+      SUITE:   ${{ inputs.suite  || 'noble' }}
       ARCH:    ${{ inputs.arch   || 'arm64' }}
       FLAVOR:  ${{ inputs.flavor || 'generic' }}
 
     steps:
       # -----------------------------------------------------------------------
-      # 1. Checkout the series branch (contains the full kernel source tree)
+      # 1. Checkout the suite branch (contains the full kernel source tree)
       # -----------------------------------------------------------------------
-      - name: Checkout series branch (${{ inputs.series }})
+      - name: Checkout suite branch (${{ inputs.suite }})
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.series || 'noble' }}
+          ref: ${{ inputs.suite || 'noble' }}
           path: kernel-src
 
       # -----------------------------------------------------------------------
@@ -103,9 +103,8 @@ jobs:
       - name: Build kernel packages
         run: |
           JOBS=$(nproc)
-          echo "Building: series=${SERIES}  flavour=${FLAVOR}  arch=${ARCH}  jobs=${JOBS}"
+          echo "Building: suite=${SUITE}  flavour=${FLAVOR}  arch=${ARCH}  jobs=${JOBS}"
 
-          # Determine debian/rules target
           if [ "${FLAVOR}" = "all" ]; then
             TARGET="binary"
           else
@@ -141,7 +140,7 @@ jobs:
       - name: Upload packages as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: "kernel-debs-${{ inputs.series }}-${{ inputs.arch }}-${{ inputs.flavor }}"
+          name: "kernel-debs-${{ inputs.suite }}-${{ inputs.arch }}-${{ inputs.flavor }}"
           path: output/
           retention-days: 90
           if-no-files-found: warn
@@ -154,7 +153,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="${SERIES}-${{ inputs.kernel_version }}"
+          TAG="${SUITE}-${{ inputs.kernel_version }}"
           DEBS=$(find output/ -name "*.deb" | sort)
 
           if [ -z "${DEBS}" ]; then
@@ -162,7 +161,6 @@ jobs:
             exit 0
           fi
 
-          # Check if the tag/release exists before trying to upload
           if gh release view "${TAG}" \
                --repo "${{ github.repository }}" \
                --json tagName -q .tagName \
@@ -186,7 +184,7 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
           echo "|-------|-------|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Series       | \`${SERIES}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Suite        | \`${SUITE}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Architecture | \`${ARCH}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Flavour      | \`${FLAVOR}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Runner       | \`${{ runner.name }}\` |" >> "$GITHUB_STEP_SUMMARY"
