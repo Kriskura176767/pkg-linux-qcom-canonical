@@ -216,11 +216,11 @@ jobs:
           }
           echo "Extraction complete"
 
-          SRC_DIR=$(find kernel-src/ -maxdepth 1 -mindepth 1 -type d | head -1)
-          [ -n "${SRC_DIR}" ] || { echo "ERROR: dpkg-source -x produced no directory"; exit 1; }
-
-          echo "Extracted to: ${SRC_DIR}"
+          # When an explicit output directory is given, dpkg-source -x extracts
+          # the source directly INTO that directory (not into a subdirectory).
+          SRC_DIR="kernel-src"
           echo "SRC_DIR=${SRC_DIR}" >> "$GITHUB_ENV"
+          echo "Extracted to: ${SRC_DIR}"
 
           # Verify the extraction produced a real kernel source tree
           FILE_COUNT=$(find "${SRC_DIR}" -type f | wc -l)
