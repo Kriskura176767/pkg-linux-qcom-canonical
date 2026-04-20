@@ -43,6 +43,7 @@ on:
 
 permissions:
   contents: write   # push to suite branch + create tags
+  actions: write    # dispatch build-kernel.yml via gh workflow run
 
 jobs:
   # --------------------------------------------------------------------------
