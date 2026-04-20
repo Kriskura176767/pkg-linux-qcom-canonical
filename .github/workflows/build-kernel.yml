@@ -2,19 +2,19 @@
 #
 # build-kernel.yml
 #
-# Builds Ubuntu kernel .deb packages directly from a suite branch
+# Builds Ubuntu kernel .deb packages from a suite branch
 # (e.g. "noble") that was populated by fetch-source-pkg.yml.
 #
-# Output .deb packages are stored in two places:
-#   1. GitHub Actions artifact  – attached to the workflow run, retained 90
-#      days, downloadable from Actions → <run> → Artifacts.
-#   2. GitHub Release asset     – attached to the <suite>-<version> tag/release
-#      (e.g. noble-6.8.0-51.52) so they are permanently accessible from the
-#      Releases page of this repository.
+# Build modes:
+#   docker  (default) – runs the build inside the suite-matched
+#                       ghcr.io/qualcomm-linux/pkg-builder:<suite> container
+#                       via docker-pkg-build; ensures a clean, reproducible
+#                       environment that exactly matches the target distro.
+#   native            – runs dpkg-buildpackage directly on the runner host.
 #
-# Triggers:
-#   • Automatic  – dispatched by fetch-source-pkg.yml on each new sync
-#   • Manual     – workflow_dispatch with configurable inputs
+# Output .deb packages are stored in two places:
+#   1. S3 bucket       – qli-prd-lecore-gh-artifacts (permanent)
+#   2. GitHub artifact – attached to the workflow run, retained 90 days
 
 name: "Build: Canonical Kernel .deb Packages"
 
@@ -47,6 +47,14 @@ on:
           - generic
           - lowlatency
           - all
+      build_mode:
+        description: "Build mode: docker (suite-matched container) or native (host)"
+        required: false
+        default: "docker"
+        type: choice
+        options:
+          - docker
+          - native
 
 permissions:
   contents: write   # upload assets to release tag
@@ -56,78 +64,111 @@ jobs:
   # Job: build
   # --------------------------------------------------------------------------
   build:
-    name: "Build ${{ inputs.suite }} ${{ inputs.flavor }} (${{ inputs.arch }})"
+    name: "Build ${{ inputs.suite }} ${{ inputs.flavor }} (${{ inputs.arch }}) [${{ inputs.build_mode || 'docker' }}]"
     runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]
     timeout-minutes: 360
 
     env:
-      SUITE:   ${{ inputs.suite  || 'noble' }}
-      ARCH:    ${{ inputs.arch   || 'arm64' }}
-      FLAVOR:  ${{ inputs.flavor || 'generic' }}
+      SUITE:       ${{ inputs.suite       || 'noble' }}
+      ARCH:        ${{ inputs.arch        || 'arm64' }}
+      FLAVOR:      ${{ inputs.flavor      || 'generic' }}
+      BUILD_MODE:  ${{ inputs.build_mode  || 'docker' }}
 
     steps:
       # -----------------------------------------------------------------------
       # 1. Checkout the suite branch (contains the full kernel source tree)
       # -----------------------------------------------------------------------
-      - name: Checkout suite branch (${{ inputs.suite }})
+      - name: Checkout suite branch (${{ inputs.suite || 'noble' }})
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.suite || 'noble' }}
           path: kernel-src
 
       # -----------------------------------------------------------------------
-      # 2. Install base build tools
+      # 2. Extract org/repo for S3 upload path
       # -----------------------------------------------------------------------
-      - name: Install base build tools
+      - name: Extract org and repo name
+        run: |
+          echo "ORG_NAME=${GITHUB_REPOSITORY%%/*}" >> "$GITHUB_ENV"
+          echo "REPO_NAME=${GITHUB_REPOSITORY#*/}"  >> "$GITHUB_ENV"
+
+      # -----------------------------------------------------------------------
+      # 3. Checkout docker-pkg-build (docker mode only)
+      # -----------------------------------------------------------------------
+      - name: Checkout docker-pkg-build
+        if: env.BUILD_MODE == 'docker'
+        uses: actions/checkout@v4
+        with:
+          repository: qualcomm-linux/docker-pkg-build
+          ref: main
+          path: docker-pkg-build
+
+      # -----------------------------------------------------------------------
+      # 4. Build the suite-matched pkg-builder docker image (docker mode only)
+      # -----------------------------------------------------------------------
+      - name: Build docker image for suite (${{ inputs.suite || 'noble' }})
+        if: env.BUILD_MODE == 'docker'
+        run: |
+          ./docker-pkg-build/docker_deb_build.py --rebuild -d "${SUITE}"
+          docker image ls
+
+      # -----------------------------------------------------------------------
+      # 5a. Build kernel packages inside the suite-matched container (docker)
+      #     The workspace is bind-mounted so output .deb files land on the host.
+      # -----------------------------------------------------------------------
+      - name: Build kernel packages (docker – ghcr.io/qualcomm-linux/pkg-builder:${{ inputs.suite || 'noble' }})
+        if: env.BUILD_MODE == 'docker'
+        run: |
+          JOBS=$(nproc)
+          if [ "${FLAVOR}" = "all" ]; then TARGET="binary"; else TARGET="binary-${FLAVOR}"; fi
+
+          echo "Building: suite=${SUITE}  target=${TARGET}  arch=${ARCH}  jobs=${JOBS}"
+
+          docker run -i --privileged --rm \
+            -v "${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE}" \
+            --workdir="${GITHUB_WORKSPACE}" \
+            "ghcr.io/qualcomm-linux/pkg-builder:${SUITE}" \
+            bash -c "
+              set -e
+              sudo apt-get update -qq
+              sudo apt-get build-dep -y kernel-src/
+              cd kernel-src/
+              export DEB_BUILD_OPTIONS='parallel=${JOBS} nocheck'
+              fakeroot debian/rules ${TARGET}
+            "
+
+      # -----------------------------------------------------------------------
+      # 5b. Build kernel packages natively on the runner (native mode)
+      # -----------------------------------------------------------------------
+      - name: Install build tools (native mode)
+        if: env.BUILD_MODE == 'native'
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            build-essential \
-            fakeroot \
-            devscripts \
-            dpkg-dev \
-            debhelper \
-            dh-exec \
-            rsync
-
-      # -----------------------------------------------------------------------
-      # 3. Install kernel-specific build dependencies
-      # -----------------------------------------------------------------------
-      - name: Install kernel build dependencies
-        run: |
+            build-essential fakeroot devscripts dpkg-dev debhelper dh-exec rsync
           sudo apt-get build-dep -y kernel-src/
 
-      # -----------------------------------------------------------------------
-      # 4. Build (native arm64 – no cross-compilation needed)
-      # -----------------------------------------------------------------------
-      - name: Build kernel packages
+      - name: Build kernel packages (native)
+        if: env.BUILD_MODE == 'native'
         run: |
           JOBS=$(nproc)
-          echo "Building: suite=${SUITE}  flavour=${FLAVOR}  arch=${ARCH}  jobs=${JOBS}"
+          if [ "${FLAVOR}" = "all" ]; then TARGET="binary"; else TARGET="binary-${FLAVOR}"; fi
 
-          if [ "${FLAVOR}" = "all" ]; then
-            TARGET="binary"
-          else
-            TARGET="binary-${FLAVOR}"
-          fi
-
+          echo "Building: suite=${SUITE}  target=${TARGET}  arch=${ARCH}  jobs=${JOBS}"
           export DEB_BUILD_OPTIONS="parallel=${JOBS} nocheck"
 
-          (
-            cd kernel-src/
-            fakeroot debian/rules "${TARGET}"
-          )
+          (cd kernel-src/ && fakeroot debian/rules "${TARGET}")
 
       # -----------------------------------------------------------------------
-      # 5. Collect output packages
+      # 6. Collect output packages
       #    The Ubuntu kernel build drops .deb files one level above the
-      #    source tree (i.e. in the working directory, not inside kernel-src/).
+      #    source tree (i.e. in GITHUB_WORKSPACE, not inside kernel-src/).
       # -----------------------------------------------------------------------
       - name: Collect built packages
         run: |
           mkdir -p output/
 
-          find . -maxdepth 1 \
+          find "${GITHUB_WORKSPACE}" -maxdepth 1 \
             \( -name "*.deb" -o -name "*.changes" -o -name "*.buildinfo" \) \
             -exec cp {} output/ \;
 
@@ -135,7 +176,17 @@ jobs:
           ls -lh output/ || echo "(no files found)"
 
       # -----------------------------------------------------------------------
-      # 6. Upload as workflow artifact (always available for 90 days)
+      # 7. Upload to S3 (permanent storage)
+      # -----------------------------------------------------------------------
+      - name: Upload kernel .deb packages to S3
+        uses: qualcomm-linux/upload-private-artifact-action@aws
+        with:
+          s3_bucket: qli-prd-lecore-gh-artifacts
+          path: ${{ github.workspace }}/output
+          destination: ${{ env.ORG_NAME }}/pkg/temp/${{ env.REPO_NAME }}/${{ github.run_id }}-${{ github.run_attempt }}/
+
+      # -----------------------------------------------------------------------
+      # 8. Upload as GitHub Actions artifact (90-day fallback)
       # -----------------------------------------------------------------------
       - name: Upload packages as artifact
         uses: actions/upload-artifact@v4
@@ -146,7 +197,7 @@ jobs:
           if-no-files-found: warn
 
       # -----------------------------------------------------------------------
-      # 7. Attach packages to the release tag (if kernel_version was provided)
+      # 9. Attach packages to the release tag (if kernel_version was provided)
       # -----------------------------------------------------------------------
       - name: Attach packages to release tag
         if: inputs.kernel_version != ''
@@ -171,11 +222,11 @@ jobs:
               --clobber
             echo "Packages attached to ${TAG}"
           else
-            echo "Release tag '${TAG}' not found – packages available as artifact only"
+            echo "Release tag '${TAG}' not found – packages available via S3 and artifact"
           fi
 
       # -----------------------------------------------------------------------
-      # 8. Summary
+      # 10. Summary
       # -----------------------------------------------------------------------
       - name: Print summary
         if: always()
@@ -187,6 +238,8 @@ jobs:
           echo "| Suite        | \`${SUITE}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Architecture | \`${ARCH}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Flavour      | \`${FLAVOR}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Build mode   | \`${BUILD_MODE}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Container    | \`ghcr.io/qualcomm-linux/pkg-builder:${SUITE}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Runner       | \`${{ runner.name }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "### Built packages" >> "$GITHUB_STEP_SUMMARY"
