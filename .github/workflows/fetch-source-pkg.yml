@@ -164,7 +164,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            curl jq devscripts dpkg-dev
+            curl jq devscripts dpkg-dev quilt rsync patch
 
       # -----------------------------------------------------------------------
       # 3. Download source package from Launchpad
@@ -187,8 +187,20 @@ jobs:
           dpkg-source -x "${DSC}" kernel-src/
 
           SRC_DIR=$(find kernel-src/ -maxdepth 1 -mindepth 1 -type d | head -1)
+          [ -n "${SRC_DIR}" ] || { echo "ERROR: dpkg-source -x produced no directory"; exit 1; }
+
           echo "Extracted to: ${SRC_DIR}"
           echo "SRC_DIR=${SRC_DIR}" >> "$GITHUB_ENV"
+
+          # Verify the extraction produced a real kernel source tree
+          FILE_COUNT=$(find "${SRC_DIR}" -type f | wc -l)
+          echo "Extracted ${FILE_COUNT} files"
+          [ "${FILE_COUNT}" -gt 5000 ] || {
+            echo "ERROR: Extraction produced only ${FILE_COUNT} files (expected >5000)"
+            echo "Top-level contents:"
+            ls -la "${SRC_DIR}/"
+            exit 1
+          }
 
           echo "Top-level contents:"
           ls "${SRC_DIR}/"
@@ -231,6 +243,14 @@ jobs:
           rsync -a --delete \
             --exclude='.git' \
             "${SRC_DIR}/" suite-repo/
+
+          # Verify rsync copied the files
+          COPIED=$(find suite-repo/ -type f | wc -l)
+          echo "Files in suite-repo after rsync: ${COPIED}"
+          [ "${COPIED}" -gt 5000 ] || {
+            echo "ERROR: rsync copied only ${COPIED} files"
+            exit 1
+          }
 
           cd suite-repo
 
