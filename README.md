@@ -16,7 +16,8 @@ Mirror and CI build pipeline for Canonical Ubuntu kernel source packages.
 │                    ┌─────────▼──────────┐                           │
 │                    │  Job 1: check-version                          │
 │                    │  curl Launchpad API │                           │
-│                    │  → noble 6.8.0-51.52│                          │
+│                    │  exact match: linux │                          │
+│                    │  → noble 6.8.0-114  │                          │
 │                    │  tag exists? YES→skip                          │
 │                    │             NO ↓   │                           │
 │                    └─────────┬──────────┘                           │
@@ -26,8 +27,9 @@ Mirror and CI build pipeline for Canonical Ubuntu kernel source packages.
 │                    │  fetch-source-pkg.sh│                          │
 │                    │  download .dsc      │                          │
 │                    │  + .orig.tar.gz     │                          │
-│                    │  + .debian.tar.xz   │                          │
-│                    │  dpkg-source -x     │                          │
+│                    │  + .diff.gz         │                          │
+│                    │  dpkg-source        │                          │
+│                    │  --no-check -x      │                          │
 │                    │  → full source tree │                          │
 │                    │  commit to noble    │                          │
 │                    │  branch + tag       │                          │
@@ -58,13 +60,14 @@ Mirror and CI build pipeline for Canonical Ubuntu kernel source packages.
 │          ┌───────────────────┼───────────────────┐                  │
 │          ▼                   ▼                   ▼                  │
 │   S3 Bucket            GitHub Artifact     GitHub Release           │
-│   qli-prd-lecore-      90-day retention    noble-6.8.0-51.52        │
+│   qli-prd-lecore-      90-day retention    noble-6.8.0-114.114      │
 │   gh-artifacts         Actions → run       Releases → Assets        │
-│   (permanent)          → Artifacts         (permanent)              │
+│   (self-hosted only)   → Artifacts         (permanent)              │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-All jobs run on: `lecore-prd-u2404-arm64-xlrg-od-ephem` (self-hosted, Ubuntu 24.04 arm64)
+All jobs run on: `ubuntu-24.04-arm` (GitHub-hosted, Ubuntu 24.04 arm64)  
+Target runner: `lecore-prd-u2404-arm64-xlrg-od-ephem` (self-hosted) — pending runner group access
 
 ---
 
@@ -86,7 +89,7 @@ pkg-linux-qcom-canonical
 ├── noble branch  (orphan)
 │   └── Full Ubuntu Noble 24.04 LTS kernel source tree
 │       One commit per Canonical upload
-│       Tagged noble-6.8.0-51.52, noble-6.8.0-52.53, …
+│       Tagged noble-6.8.0-114.114, noble-6.8.0-115.115, …
 │
 └── <suite> branch  (orphan, added on demand)
     └── Full kernel source for that suite
@@ -114,13 +117,14 @@ and contain only the extracted kernel source tree.
 ### `fetch-source-pkg.yml` — Sync sources to branch
 
 Queries the Launchpad REST API for the latest published `linux` source
-package, downloads the `.dsc` + tarballs, extracts the full source tree
-with `dpkg-source -x` (applying all Ubuntu patches), and commits the
-result to the corresponding suite branch.
+package (exact name match — the API does prefix matching), downloads the
+source package files, extracts the full source tree with
+`dpkg-source --no-check -x`, and commits the result to the corresponding
+suite branch.
 
 **Schedule**: daily at **04:00 UTC**  
 **Manual trigger**: `Actions → Sync: Canonical Kernel Sources to Branch → Run workflow`  
-**Runner**: `lecore-prd-u2404-arm64-xlrg-od-ephem` (all three jobs)
+**Runner**: `ubuntu-24.04-arm` (all three jobs)
 
 **Inputs**:
 
@@ -133,11 +137,11 @@ result to the corresponding suite branch.
 
 | Job | What it does |
 |-----|-------------|
-| `check-version` | Queries Launchpad API; checks if tag already exists; sets `should_sync` flag |
-| `sync` | Downloads source package via `fetch-source-pkg.sh`; extracts with `dpkg-source -x`; commits to suite branch; creates tag |
+| `check-version` | Queries Launchpad API with exact `source_package_name` filter; checks if tag already exists; sets `should_sync` flag |
+| `sync` | Frees disk space; downloads source package via `fetch-source-pkg.sh`; extracts with `dpkg-source --no-check -x`; verifies >5000 files; commits to suite branch; creates tag |
 | `trigger-build` | Dispatches `build-kernel.yml` with `suite`, `kernel_version`, `arch=arm64`, `build_mode=docker` |
 
-**Idempotent**: if tag `noble-6.8.0-51.52` already exists, the workflow exits cleanly without downloading anything.
+**Idempotent**: if tag `noble-6.8.0-114.114` already exists, the workflow exits cleanly without downloading anything.
 
 ---
 
@@ -149,7 +153,7 @@ container using `fakeroot debian/rules binary-<flavor>`.
 
 **Trigger**: dispatched automatically by `fetch-source-pkg.yml`, or
 manually via `Actions → Build: Canonical Kernel .deb Packages → Run workflow`.  
-**Runner**: `lecore-prd-u2404-arm64-xlrg-od-ephem`
+**Runner**: `ubuntu-24.04-arm`
 
 **Inputs**:
 
@@ -162,24 +166,25 @@ manually via `Actions → Build: Canonical Kernel .deb Packages → Run workflow
 | `build_mode` | `docker` | `docker` (suite-matched container) or `native` (host) |
 
 **Build steps (docker mode)**:
-1. Checkout suite branch → `kernel-src/`
-2. Checkout `qualcomm-linux/docker-pkg-build@main` → `docker-pkg-build/`
-3. Build docker image: `docker_deb_build.py --rebuild -d <suite>`
-4. Run build inside container:
+1. Free up disk space (~10 GB)
+2. Checkout suite branch → `kernel-src/`
+3. Checkout `qualcomm-linux/docker-pkg-build@main` → `docker-pkg-build/`
+4. Build docker image: `docker_deb_build.py --rebuild -d <suite>`
+5. Run build inside container:
    ```
    docker run ghcr.io/qualcomm-linux/pkg-builder:<suite>
      → apt-get build-dep kernel-src/
      → fakeroot debian/rules binary-<flavor>
    ```
-5. Collect `.deb` files from workspace root
+6. Collect `.deb` files from workspace root
 
-**Output — three locations**:
+**Output**:
 
-| Location | How to access | Retention |
-|----------|---------------|-----------|
-| **S3** | `s3://qli-prd-lecore-gh-artifacts/<org>/pkg/temp/<repo>/<run-id>/` | Permanent |
-| **GitHub Actions artifact** | Actions → workflow run → *Artifacts* | 90 days |
-| **GitHub Release asset** | Releases → `noble-6.8.0-X.Y` → Assets | Permanent |
+| Location | How to access | Retention | Notes |
+|----------|---------------|-----------|-------|
+| **S3** | `s3://qli-prd-lecore-gh-artifacts/<org>/pkg/temp/<repo>/<run-id>/` | Permanent | Self-hosted runner only; skipped gracefully on GitHub-hosted |
+| **GitHub Actions artifact** | Actions → workflow run → *Artifacts* | 90 days | Always available |
+| **GitHub Release asset** | Releases → `noble-6.8.0-X.Y` → Assets | Permanent | Attached when `kernel_version` is provided |
 
 ---
 
@@ -216,7 +221,7 @@ All scripts run on Ubuntu 24.04 arm64.
 
 ```bash
 ./scripts/check-version.sh noble linux
-# → 6.8.0-51.52
+# → 6.8.0-114.114
 ```
 
 ### Download the source package
@@ -236,16 +241,20 @@ All scripts run on Ubuntu 24.04 arm64.
 
 ## Source package anatomy
 
-The Ubuntu kernel source package is a standard Debian 3.0 (quilt) source package:
+The Ubuntu Noble kernel source package uses **Debian source format 1.0**:
 
 | File | Size | Description |
 |------|------|-------------|
 | `linux_X.Y.Z-A.B.dsc` | ~10 KB | Source descriptor with SHA256 checksums |
-| `linux_X.Y.Z.orig.tar.gz` | ~200 MB | Pristine upstream kernel tarball |
-| `linux_X.Y.Z-A.B.debian.tar.xz` | ~5 MB | Ubuntu packaging overlay + patches |
+| `linux_X.Y.Z.orig.tar.gz` | ~220 MB | Pristine upstream kernel tarball |
+| `linux_X.Y.Z-A.B.diff.gz` | ~8 MB | Ubuntu patch set applied on top of upstream |
 
-`dpkg-source -x` applies all patches and produces the full source tree
-that is committed to the suite branch.
+`dpkg-source --no-check -x` applies the diff to the orig tarball and
+produces the full patched source tree, which is committed to the suite branch.
+
+> **Note**: The Launchpad API `source_name=` parameter does prefix matching.
+> The workflow uses an exact `source_package_name` filter in jq to ensure
+> `linux` is fetched and not `linux-meta-raspi` or other `linux-*` packages.
 
 ---
 
@@ -256,10 +265,10 @@ Ubuntu kernel versions follow `X.Y.Z-A.B`:
 | Component | Example | Meaning |
 |-----------|---------|---------|
 | `X.Y.Z` | `6.8.0` | Upstream kernel version |
-| `A` | `51` | ABI number |
-| `B` | `52` | Upload number |
+| `A` | `114` | ABI number |
+| `B` | `114` | Upload number |
 
-Tags use `<suite>-X.Y.Z-A.B`, e.g. `noble-6.8.0-51.52`.
+Tags use `<suite>-X.Y.Z-A.B`, e.g. `noble-6.8.0-114.114`.
 
 ---
 
