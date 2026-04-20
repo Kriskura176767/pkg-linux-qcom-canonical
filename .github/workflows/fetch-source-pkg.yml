@@ -296,21 +296,27 @@ jobs:
             > /tmp/commit-msg.txt
 
           git add --all
-          git commit -F /tmp/commit-msg.txt
 
-          echo "Committed ${SUITE} branch at $(git rev-parse HEAD)"
+          if git diff --cached --quiet; then
+            echo "No changes to commit – suite branch already has this content"
+          else
+            git commit -F /tmp/commit-msg.txt
+            echo "Committed ${SUITE} branch at $(git rev-parse HEAD)"
+          fi
 
       - name: Tag the commit
         run: |
           cd suite-repo
-          git tag -a "${TAG}" -m "Ubuntu ${SUITE} kernel ${VERSION}"
+          # Use -f to overwrite existing tag when force=true
+          git tag -fa "${TAG}" -m "Ubuntu ${SUITE} kernel ${VERSION}"
           echo "Tagged: ${TAG}"
 
       - name: Push suite branch and tag
         run: |
           cd suite-repo
           git push origin "${SUITE}"
-          git push origin "${TAG}"
+          # Use --force to overwrite existing tag when force=true
+          git push --force origin "${TAG}"
           echo "Pushed branch '${SUITE}' and tag '${TAG}'"
 
       # -----------------------------------------------------------------------
