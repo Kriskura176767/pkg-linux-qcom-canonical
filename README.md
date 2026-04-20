@@ -23,6 +23,7 @@ Mirror and CI build pipeline for Canonical Ubuntu kernel source packages.
 │                              │                                      │
 │                    ┌─────────▼──────────┐                           │
 │                    │  Job 2: sync        │                          │
+│                    │  fetch-source-pkg.sh│                          │
 │                    │  download .dsc      │                          │
 │                    │  + .orig.tar.gz     │                          │
 │                    │  + .debian.tar.xz   │                          │
@@ -36,26 +37,34 @@ Mirror and CI build pipeline for Canonical Ubuntu kernel source packages.
 │                    │  Job 3: trigger     │                          │
 │                    │  gh workflow run    │                          │
 │                    │  build-kernel.yml   │                          │
+│                    │  suite=noble        │                          │
+│                    │  build_mode=docker  │                          │
 │                    └─────────┬──────────┘                           │
 │                              │                                      │
 │                    ┌─────────▼──────────┐                           │
 │                    │  build-kernel.yml   │                          │
 │                    │  checkout noble     │                          │
 │                    │  branch             │                          │
-│                    │  apt-get build-dep  │                          │
-│                    │  fakeroot           │                          │
+│                    │  checkout           │                          │
+│                    │  docker-pkg-build   │                          │
+│                    │  docker_deb_build.py│                          │
+│                    │  --rebuild -d noble │                          │
+│                    │  docker run         │                          │
+│                    │  pkg-builder:noble  │                          │
 │                    │  debian/rules       │                          │
 │                    │  binary-generic     │                          │
 │                    └─────────┬──────────┘                           │
 │                              │                                      │
-│               ┌──────────────┴──────────────┐                       │
-│               ▼                             ▼                       │
-│   GitHub Actions Artifact         GitHub Release Asset              │
-│   (90-day retention)              noble-6.8.0-51.52                 │
-│   Actions → run → Artifacts       Releases page → Assets            │
-│                                   (permanent)                       │
+│          ┌───────────────────┼───────────────────┐                  │
+│          ▼                   ▼                   ▼                  │
+│   S3 Bucket            GitHub Artifact     GitHub Release           │
+│   qli-prd-lecore-      90-day retention    noble-6.8.0-51.52        │
+│   gh-artifacts         Actions → run       Releases → Assets        │
+│   (permanent)          → Artifacts         (permanent)              │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+All jobs run on: `lecore-prd-u2404-arm64-xlrg-od-ephem` (self-hosted, Ubuntu 24.04 arm64)
 
 ---
 
@@ -110,7 +119,8 @@ with `dpkg-source -x` (applying all Ubuntu patches), and commits the
 result to the corresponding suite branch.
 
 **Schedule**: daily at **04:00 UTC**  
-**Manual trigger**: `Actions → Sync: Canonical Kernel Sources to Branch → Run workflow`
+**Manual trigger**: `Actions → Sync: Canonical Kernel Sources to Branch → Run workflow`  
+**Runner**: `lecore-prd-u2404-arm64-xlrg-od-ephem` (all three jobs)
 
 **Inputs**:
 
@@ -119,19 +129,27 @@ result to the corresponding suite branch.
 | `suite` | `noble` | Ubuntu suite to sync — one suite per run |
 | `force` | `false` | Re-sync even if tag already exists |
 
-**Idempotent**: checks for the tag before downloading anything.  
-**Auto-triggers**: dispatches `build-kernel.yml` on each new sync.
+**Jobs**:
+
+| Job | What it does |
+|-----|-------------|
+| `check-version` | Queries Launchpad API; checks if tag already exists; sets `should_sync` flag |
+| `sync` | Downloads source package via `fetch-source-pkg.sh`; extracts with `dpkg-source -x`; commits to suite branch; creates tag |
+| `trigger-build` | Dispatches `build-kernel.yml` with `suite`, `kernel_version`, `arch=arm64`, `build_mode=docker` |
+
+**Idempotent**: if tag `noble-6.8.0-51.52` already exists, the workflow exits cleanly without downloading anything.
 
 ---
 
 ### `build-kernel.yml` — Build .deb packages
 
 Checks out the suite branch (full kernel source tree) and builds `.deb`
-packages using the Ubuntu `debian/rules` build system on the native arm64
-self-hosted runner.
+packages inside the suite-matched `ghcr.io/qualcomm-linux/pkg-builder:<suite>`
+container using `fakeroot debian/rules binary-<flavor>`.
 
 **Trigger**: dispatched automatically by `fetch-source-pkg.yml`, or
-manually via `Actions → Build: Canonical Kernel .deb Packages → Run workflow`.
+manually via `Actions → Build: Canonical Kernel .deb Packages → Run workflow`.  
+**Runner**: `lecore-prd-u2404-arm64-xlrg-od-ephem`
 
 **Inputs**:
 
@@ -141,16 +159,27 @@ manually via `Actions → Build: Canonical Kernel .deb Packages → Run workflow
 | `kernel_version` | — | Version string for release asset attachment |
 | `arch` | `arm64` | Target architecture |
 | `flavor` | `generic` | Kernel flavour: `generic`, `lowlatency`, or `all` |
+| `build_mode` | `docker` | `docker` (suite-matched container) or `native` (host) |
 
-**Output — two locations**:
+**Build steps (docker mode)**:
+1. Checkout suite branch → `kernel-src/`
+2. Checkout `qualcomm-linux/docker-pkg-build@main` → `docker-pkg-build/`
+3. Build docker image: `docker_deb_build.py --rebuild -d <suite>`
+4. Run build inside container:
+   ```
+   docker run ghcr.io/qualcomm-linux/pkg-builder:<suite>
+     → apt-get build-dep kernel-src/
+     → fakeroot debian/rules binary-<flavor>
+   ```
+5. Collect `.deb` files from workspace root
+
+**Output — three locations**:
 
 | Location | How to access | Retention |
 |----------|---------------|-----------|
+| **S3** | `s3://qli-prd-lecore-gh-artifacts/<org>/pkg/temp/<repo>/<run-id>/` | Permanent |
 | **GitHub Actions artifact** | Actions → workflow run → *Artifacts* | 90 days |
 | **GitHub Release asset** | Releases → `noble-6.8.0-X.Y` → Assets | Permanent |
-
-**Runner**: `lecore-prd-u2404-arm64-xlrg-od-ephem`  
-Native arm64 build — no cross-compilation.
 
 ---
 
@@ -172,7 +201,6 @@ Go to **Actions** and enable workflows if prompted.
 ### 3. Run the first sync
 
 ```bash
-# Sync noble sources to the noble branch (creates it if it doesn't exist)
 gh workflow run fetch-source-pkg.yml \
   --repo qualcomm-linux/pkg-linux-qcom-canonical \
   --field suite=noble
