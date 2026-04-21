@@ -244,9 +244,9 @@ jobs:
           if-no-files-found: warn
 
       # -----------------------------------------------------------------------
-      # 10. Attach packages to the release tag (if kernel_version was provided)
+      # 10. Create GitHub Release and attach built packages
       # -----------------------------------------------------------------------
-      - name: Attach packages to release tag
+      - name: Create GitHub Release and attach packages
         if: inputs.kernel_version != ''
         env:
           GH_TOKEN: ${{ github.token }}
@@ -259,18 +259,29 @@ jobs:
             exit 0
           fi
 
-          if gh release view "${TAG}" \
+          # Create the release if it doesn't already exist
+          if ! gh release view "${TAG}" \
                --repo "${{ github.repository }}" \
                --json tagName -q .tagName \
                >/dev/null 2>&1; then
-            echo "Attaching packages to release ${TAG}..."
-            echo "${DEBS}" | xargs gh release upload "${TAG}" \
+            echo "Creating GitHub Release ${TAG}..."
+            printf 'Ubuntu %s kernel %s built for arm64.\n\nFlavour: %s\nBuild mode: %s\nRunner: %s\n' \
+              "${SUITE}" "${{ inputs.kernel_version }}" \
+              "${FLAVOR}" "${BUILD_MODE}" "${{ runner.name }}" \
+              > /tmp/release-notes.md
+            gh release create "${TAG}" \
               --repo "${{ github.repository }}" \
-              --clobber
-            echo "Packages attached to ${TAG}"
-          else
-            echo "Release tag '${TAG}' not found – packages available via S3 and artifact"
+              --title "Ubuntu ${SUITE} kernel ${{ inputs.kernel_version }} (arm64)" \
+              --notes-file /tmp/release-notes.md \
+              --latest=false
           fi
+
+          echo "Uploading packages to release ${TAG}..."
+          echo "${DEBS}" | xargs gh release upload "${TAG}" \
+            --repo "${{ github.repository }}" \
+            --clobber
+          echo "Packages attached to release ${TAG}"
+          echo "Release URL: https://github.com/${{ github.repository }}/releases/tag/${TAG}"
 
       # -----------------------------------------------------------------------
       # 11. Summary

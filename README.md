@@ -102,12 +102,11 @@ and contain only the extracted kernel source tree.
 
 ## Upstream source
 
-| Resource | URL pattern |
-|----------|-------------|
-| Launchpad source packages | `https://launchpad.net/ubuntu/<suite>/+source/linux` |
-| Launchpad git repository | `https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/<suite>` |
-| Launchpad REST API | https://api.launchpad.net/1.0/ |
-| GitHub Releases | https://github.com/qualcomm-linux/pkg-linux-qcom-canonical/releases |
+| Resource | URL pattern | Used by |
+|----------|-------------|---------|
+| Launchpad REST API | `https://api.launchpad.net/1.0/ubuntu/+archive/primary?ws.op=getPublishedSources&source_name=linux&distro_series=/ubuntu/<suite>` | `check-version` job — queries for the latest published version number |
+| Launchpad git repository | `https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/<suite>` | `sync` job — clones the complete source tree at tag `Ubuntu-<version>` |
+| GitHub Releases | https://github.com/qualcomm-linux/pkg-linux-qcom-canonical/releases | `build-kernel` job — attaches built `.deb` packages |
 
 **Noble (current active suite):**
 - Source packages: https://launchpad.net/ubuntu/noble/+source/linux
