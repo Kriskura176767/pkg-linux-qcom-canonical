@@ -160,7 +160,7 @@ jobs:
                 grep '^deb ' /etc/apt/sources.list | sed 's/^deb /deb-src /' >> /etc/apt/sources.list
               fi
               apt-get update -qq
-              apt-get build-dep -y kernel-src/
+              apt-get build-dep -y ./kernel-src/
               cd kernel-src/
               # The Ubuntu kernel uses debian.master/ with debian/ as a symlink.
               # Ensure the symlink exists (git may not preserve it).
@@ -181,7 +181,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             build-essential fakeroot devscripts dpkg-dev debhelper dh-exec rsync
-          sudo apt-get build-dep -y kernel-src/
+          sudo apt-get build-dep -y ./kernel-src/
 
       - name: Build kernel packages (native)
         if: env.BUILD_MODE == 'native'
