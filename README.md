@@ -246,18 +246,55 @@ This produces a complete, buildable source tree with `debian/rules` — the same
 
 ## Source and build notes
 
-### Why git instead of the source package?
+### How the sync workflow finds and clones the kernel source
 
-The Ubuntu kernel source package (format 1.0) ships only `debian.master/`
-with `rules.d/` fragments — **`debian/rules` is NOT included**. The complete
-`debian/` directory (with `rules`, `scripts/`, `templates/`, etc.) lives only
-in the Launchpad git repository.
+The sync workflow uses two Launchpad services for different purposes:
 
-The sync workflow therefore clones from:
+**Step 1 — Launchpad REST API: find the latest published version**
+
 ```
-https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/<suite>
+GET https://api.launchpad.net/1.0/ubuntu/+archive/primary
+    ?ws.op=getPublishedSources
+    &source_name=linux
+    &distro_series=/ubuntu/noble
+    &status=Published
+    &order_by_date=true
+
+Response (JSON):
+{
+  "entries": [
+    {
+      "source_package_name": "linux",
+      "source_package_version": "6.8.0-114.114",   ← we want this
+      "self_link": "https://api.launchpad.net/..."
+    },
+    ...
+  ]
+}
 ```
-at the tag `Ubuntu-<version>` (e.g. `Ubuntu-6.8.0-114.114`).
+
+The API tells us the exact version string of the latest *officially published*
+kernel. A git tag might exist before the package is published to the archive,
+so the API is the authoritative source for "what is the current release".
+
+**Step 2 — Construct the git tag**
+
+```
+VERSION = "6.8.0-114.114"
+GIT_TAG = "Ubuntu-6.8.0-114.114"
+```
+
+**Step 3 — Clone from Launchpad git at that tag**
+
+```bash
+git clone --depth=1 --branch Ubuntu-6.8.0-114.114 \
+  https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/noble
+```
+
+The git repository has the **complete** `debian/` directory including
+`debian/rules`, `debian/scripts/`, `debian/templates/`, etc. — unlike the
+source package (`.dsc`/`.orig.tar.gz`/`.diff.gz`) which ships only
+`debian.master/` with `rules.d/` fragments and no `debian/rules`.
 
 ### Noble branch source tree layout
 
