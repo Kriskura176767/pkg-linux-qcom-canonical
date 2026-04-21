@@ -186,9 +186,17 @@ jobs:
               ls -la debian 2>/dev/null || echo 'debian STILL does not exist'
               ls -la debian/rules 2>/dev/null || echo 'debian/rules NOT FOUND'
 
+              # The Ubuntu kernel does not ship debian/rules directly.
+              # debian.master/ has rules.d/ fragments; debian/rules is generated
+              # by running the reconstruct script.
+              echo '=== Running debian/reconstruct ==='
+              bash debian/reconstruct
+
+              echo '=== debian/rules after reconstruct ==='
+              ls -la debian/rules 2>/dev/null || echo 'debian/rules STILL not found after reconstruct'
+
               export DEB_BUILD_OPTIONS='parallel=${JOBS} nocheck'
-              # Use 'make -f' so the rules file does not need to be executable
-              fakeroot make -f debian/rules ${TARGET}
+              fakeroot debian/rules ${TARGET}
             "
 
       # -----------------------------------------------------------------------
