@@ -160,7 +160,11 @@ jobs:
                 grep '^deb ' /etc/apt/sources.list | sed 's/^deb /deb-src /' >> /etc/apt/sources.list
               fi
               apt-get update -qq
-              apt-get build-dep -y ./kernel-src/
+              # Install build dependencies for the linux source package.
+              # Using the source package name is more reliable than pointing
+              # apt-get at a local directory (requires apt >= 1.1 and a
+              # debian/control symlink to be in place first).
+              apt-get build-dep -y linux
               cd kernel-src/
               # The Ubuntu kernel uses debian.master/ with debian/ as a symlink.
               # Ensure the symlink exists (git may not preserve it).
