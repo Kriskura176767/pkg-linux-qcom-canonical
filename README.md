@@ -108,7 +108,7 @@ and contain only the extracted kernel source tree.
 | Launchpad git repository | `https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/<suite>` | `sync` job — clones the complete source tree at tag `Ubuntu-<version>` |
 | GitHub Releases | https://github.com/qualcomm-linux/pkg-linux-qcom-canonical/releases | `build-kernel` job — attaches built `.deb` packages |
 
-**Noble (current active suite):**
+**Example (noble suite):**
 - Source packages: https://launchpad.net/ubuntu/noble/+source/linux
 - Git repository: `https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/noble`
 

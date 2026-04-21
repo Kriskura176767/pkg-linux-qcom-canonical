@@ -222,10 +222,12 @@ jobs:
           ls -lh output/ || echo "(no files found)"
 
       # -----------------------------------------------------------------------
-      # 8. Upload to S3 (permanent storage, self-hosted runner only)
+      # 8. Upload to S3 (self-hosted runner only)
+      #    Skipped on GitHub-hosted runners — S3 credentials and network
+      #    access are only available on lecore-prd-u2404-arm64-xlrg-od-ephem.
       # -----------------------------------------------------------------------
       - name: Upload kernel .deb packages to S3
-        continue-on-error: true
+        if: runner.name == 'lecore-prd-u2404-arm64-xlrg-od-ephem'
         uses: qualcomm-linux/upload-private-artifact-action@aws
         with:
           s3_bucket: qli-prd-lecore-gh-artifacts
