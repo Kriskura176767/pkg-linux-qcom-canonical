@@ -282,15 +282,20 @@ jobs:
       - name: Print summary
         if: always()
         run: |
+          LAUNCHPAD_URL="https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/${SUITE}"
+          GIT_TAG="Ubuntu-${VERSION}"
+
           echo "## Source Sync Summary" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
           echo "|-------|-------|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Suite    | \`${SUITE}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Version  | \`${VERSION}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Branch   | [\`${SUITE}\`](https://github.com/${{ github.repository }}/tree/${SUITE}) |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Tag      | [\`${TAG}\`](https://github.com/${{ github.repository }}/releases/tag/${TAG}) |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Source   | Launchpad git tag \`Ubuntu-${VERSION}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Suite      | \`${SUITE}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Version    | \`${VERSION}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Branch     | [\`${SUITE}\`](https://github.com/${{ github.repository }}/tree/${SUITE}) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Tag        | [\`${TAG}\`](https://github.com/${{ github.repository }}/releases/tag/${TAG}) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Cloned from | \`${LAUNCHPAD_URL}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Git tag    | \`${GIT_TAG}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Launchpad  | https://launchpad.net/ubuntu/${SUITE}/+source/${SOURCE}/${VERSION} |" >> "$GITHUB_STEP_SUMMARY"
 
   trigger-build:
     name: "Trigger kernel build"
