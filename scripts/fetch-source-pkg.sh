@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# fetch-source-pkg.sh - Download a Canonical Ubuntu kernel source package
-#                       from Launchpad
+# fetch-source-pkg.sh - Clone the Canonical Ubuntu kernel source from the
+#                       Launchpad git repository at the version tag matching
+#                       the latest published source package.
 #
 # Usage:
 #   fetch-source-pkg.sh [SUITE] [SOURCE_NAME] [OUTPUT_DIR]
@@ -10,14 +11,17 @@
 # Arguments:
 #   SUITE        Ubuntu suite (default: noble)
 #   SOURCE_NAME  Source package name (default: linux)
-#   OUTPUT_DIR   Directory to write files into (default: .)
+#   OUTPUT_DIR   Directory to clone into (default: .)
 #
-# The script queries the Launchpad REST API to find the latest published
-# source, then downloads all constituent files (.dsc, .orig.tar.gz,
-# .debian.tar.xz, etc.) and writes a version.env summary file.
+# Why git instead of the source package (.dsc/.orig.tar.gz/.diff.gz)?
+#   The Ubuntu kernel source package (format 1.0) ships only debian.master/
+#   with rules.d/ fragments — debian/rules is NOT included. The complete
+#   debian/ directory (with rules, scripts/, templates/, etc.) lives only in
+#   the Launchpad git repository. Cloning from git gives a buildable tree.
 #
-# Environment variables (override defaults):
-#   LAUNCHPAD_API   Base URL for the Launchpad API (default: https://api.launchpad.net/1.0)
+# Output:
+#   A shallow clone of the kernel source at tag Ubuntu-<version> is placed
+#   in OUTPUT_DIR/. A version.env metadata file is also written.
 
 set -euo pipefail
 
@@ -26,6 +30,7 @@ SOURCE_NAME="${2:-linux}"
 OUTPUT_DIR="${3:-.}"
 
 LAUNCHPAD_API="${LAUNCHPAD_API:-https://api.launchpad.net/1.0}"
+LAUNCHPAD_GIT="https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -35,7 +40,7 @@ die()  { log "ERROR: $*"; exit 1; }
 hr()   { log "$(printf '%0.s─' {1..60})"; }
 
 # ---------------------------------------------------------------------------
-# 1. Query Launchpad for the latest published source
+# 1. Query Launchpad for the latest published version
 # ---------------------------------------------------------------------------
 hr
 log "Querying Launchpad for latest '${SOURCE_NAME}' in Ubuntu ${SUITE}..."
@@ -48,75 +53,56 @@ API_URL+="&status=Published"
 API_URL+="&order_by_date=true"
 
 RESPONSE=$(curl -fsSL "${API_URL}") \
-  || die "Launchpad API request failed: ${API_URL}"
+  || die "Launchpad API request failed"
 
-# Filter by exact source_package_name (source_name= is a prefix match on Launchpad)
+# Filter by exact source_package_name (source_name= is a prefix match)
 VERSION=$(echo "$RESPONSE" | jq -r \
   --arg name "${SOURCE_NAME}" \
   '[.entries[] | select(.source_package_name == $name)] | .[0].source_package_version // empty')
-SELF_LINK=$(echo "$RESPONSE" | jq -r \
-  --arg name "${SOURCE_NAME}" \
-  '[.entries[] | select(.source_package_name == $name)] | .[0].self_link // empty')
 
-[ -n "$VERSION"   ] || die "No published source found for '${SOURCE_NAME}' (exact) in '${SUITE}'"
-[ -n "$SELF_LINK" ] || die "Could not retrieve self_link for '${SOURCE_NAME}' ${VERSION}"
+[ -n "$VERSION" ] || die "No published source found for '${SOURCE_NAME}' (exact) in '${SUITE}'"
 
-# Upstream version: strip Ubuntu revision suffix (e.g. "6.8.0-51.52" → "6.8.0")
 UPSTREAM_VERSION=$(echo "${VERSION}" | cut -d'-' -f1)
+GIT_TAG="Ubuntu-${VERSION}"
 
-log "Found:  ${SOURCE_NAME} ${VERSION}  (upstream: ${UPSTREAM_VERSION})"
-log "Link:   ${SELF_LINK}"
-
-# ---------------------------------------------------------------------------
-# 2. Retrieve per-file download URLs
-# ---------------------------------------------------------------------------
-hr
-log "Fetching file list..."
-
-FILE_URLS=$(curl -fsSL "${SELF_LINK}?ws.op=sourceFileUrls" | jq -r '.[]') \
-  || die "Failed to retrieve file URLs from ${SELF_LINK}"
-
-[ -n "$FILE_URLS" ] || die "No files listed for ${SOURCE_NAME} ${VERSION}"
-
-FILE_COUNT=$(echo "$FILE_URLS" | wc -l)
-log "Files to download: ${FILE_COUNT}"
+log "Found:    ${SOURCE_NAME} ${VERSION}  (upstream: ${UPSTREAM_VERSION})"
+log "Git tag:  ${GIT_TAG}"
 
 # ---------------------------------------------------------------------------
-# 3. Download each file
+# 2. Clone from Launchpad git at the version tag (shallow)
 # ---------------------------------------------------------------------------
 hr
+CLONE_URL="${LAUNCHPAD_GIT}/${SUITE}"
+log "Cloning ${CLONE_URL} at tag ${GIT_TAG} (shallow)..."
+
 mkdir -p "${OUTPUT_DIR}"
 
-IDX=0
-while IFS= read -r url; do
-  IDX=$((IDX + 1))
-  FILENAME=$(basename "${url%%\?*}")   # strip any query string
-  DEST="${OUTPUT_DIR}/${FILENAME}"
+git clone --depth=1 --branch "${GIT_TAG}" "${CLONE_URL}" "${OUTPUT_DIR}" \
+  || die "git clone failed"
 
-  log "[${IDX}/${FILE_COUNT}] ${FILENAME}"
-  curl -fsSL --progress-bar -o "${DEST}" "${url}" \
-    || die "Download failed: ${url}"
+FILE_COUNT=$(find "${OUTPUT_DIR}" -type f | wc -l)
+log "Cloned ${FILE_COUNT} files"
 
-  SIZE=$(du -sh "${DEST}" | cut -f1)
-  log "  → ${SIZE}  ${DEST}"
-done <<< "$FILE_URLS"
+[ "${FILE_COUNT}" -gt 5000 ] || \
+  die "Too few files cloned (${FILE_COUNT}) — expected >5000"
 
 # ---------------------------------------------------------------------------
-# 4. Write version metadata
+# 3. Write version metadata
 # ---------------------------------------------------------------------------
 hr
-VERSION_ENV="${OUTPUT_DIR}/version.env"
-cat > "${VERSION_ENV}" <<EOF
+cat > "${OUTPUT_DIR}/version.env" <<EOF
 SOURCE_NAME=${SOURCE_NAME}
 SUITE=${SUITE}
 VERSION=${VERSION}
 UPSTREAM_VERSION=${UPSTREAM_VERSION}
-LAUNCHPAD_SELF_LINK=${SELF_LINK}
+GIT_TAG=${GIT_TAG}
+GIT_URL=${CLONE_URL}
 FETCH_DATE=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 EOF
 
-log "Metadata written to ${VERSION_ENV}"
+log "Metadata written to ${OUTPUT_DIR}/version.env"
 hr
-log "Download complete.  Output directory: ${OUTPUT_DIR}"
+log "Clone complete.  Output directory: ${OUTPUT_DIR}"
 log ""
-ls -lh "${OUTPUT_DIR}/"
+log "debian/ contents:"
+ls "${OUTPUT_DIR}/debian/" | head -10

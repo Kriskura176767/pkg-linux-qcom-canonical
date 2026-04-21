@@ -2,9 +2,16 @@
 #
 # fetch-source-pkg.yml
 #
-# Fetches the latest Canonical Ubuntu kernel source package from Launchpad,
-# extracts it with dpkg-source, and commits the full source tree to a branch
-# named after the Ubuntu suite (e.g. "noble", "questing").
+# Clones the Canonical Ubuntu kernel from the Launchpad git repository at
+# the tag corresponding to the latest published source package version, and
+# commits the full source tree (including the complete debian/ directory) to
+# a branch named after the Ubuntu suite (e.g. "noble", "questing").
+#
+# Why git instead of the source package?
+#   The Ubuntu kernel source package (format 1.0) ships only debian.master/
+#   with rules.d/ fragments — debian/rules is NOT included. The complete
+#   debian/ directory (with rules, scripts/, templates/, etc.) lives in the
+#   Launchpad git repository. Using the git source gives a buildable tree.
 #
 # Repository branch layout
 # ─────────────────────────
@@ -13,10 +20,7 @@
 #   <suite>       – additional suites added on demand (questing, resolute, …)
 #
 # Each commit on a suite branch is tagged  <suite>-<version>
-# (e.g.  noble-6.8.0-51.52).
-#
-# The workflow is idempotent: if the tag already exists it exits cleanly.
-# On success it automatically dispatches build-kernel.yml.
+# (e.g.  noble-6.8.0-114.114).
 #
 # Repository variables (Settings → Variables → Actions):
 #   KERNEL_SUITE   – default suite to sync when not specified (default: noble)
@@ -26,7 +30,6 @@ name: "Sync: Canonical Kernel Sources to Branch"
 
 on:
   schedule:
-    # Run daily at 04:00 UTC
     - cron: "0 4 * * *"
 
   workflow_dispatch:
@@ -42,14 +45,10 @@ on:
         default: false
 
 permissions:
-  contents: write   # push to suite branch + create tags
-  actions: write    # dispatch build-kernel.yml via gh workflow run
+  contents: write
+  actions: write
 
 jobs:
-  # --------------------------------------------------------------------------
-  # Job 1: check-version
-  #   Queries Launchpad and decides whether a sync is needed.
-  # --------------------------------------------------------------------------
   check-version:
     name: "Check latest version on Launchpad"
     runs-on: ubuntu-24.04-arm
@@ -67,9 +66,6 @@ jobs:
       - name: Install dependencies
         run: sudo apt-get install -y --no-install-recommends jq
 
-      # -----------------------------------------------------------------------
-      # Query Launchpad REST API
-      # -----------------------------------------------------------------------
       - name: Query Launchpad for latest published source
         id: query
         env:
@@ -86,7 +82,6 @@ jobs:
           echo "Querying: ${API}"
           RESP=$(curl -fsSL "${API}")
 
-          # Filter by exact source_package_name (source_name= is a prefix match)
           VERSION=$(echo "$RESP" | jq -r \
             --arg name "${SOURCE}" \
             '[.entries[] | select(.source_package_name == $name)] | .[0].source_package_version // empty')
@@ -108,9 +103,6 @@ jobs:
           echo "Version : ${VERSION}"
           echo "Tag     : ${TAG}"
 
-      # -----------------------------------------------------------------------
-      # Gate: skip if the tag already exists (unless force=true)
-      # -----------------------------------------------------------------------
       - name: Check whether tag already exists
         id: gate
         env:
@@ -132,11 +124,6 @@ jobs:
             echo "Tag '${TAG}' not found – will sync"
           fi
 
-  # --------------------------------------------------------------------------
-  # Job 2: sync
-  #   Downloads the source package, extracts it, and commits to the suite
-  #   branch.
-  # --------------------------------------------------------------------------
   sync:
     name: "Sync ${{ needs.check-version.outputs.suite }} sources to branch"
     runs-on: ubuntu-24.04-arm
@@ -153,7 +140,7 @@ jobs:
 
     steps:
       # -----------------------------------------------------------------------
-      # 1. Free up disk space (GitHub-hosted runners have ~14 GB free)
+      # 1. Free up disk space
       # -----------------------------------------------------------------------
       - name: Free up runner disk space
         run: |
@@ -172,72 +159,45 @@ jobs:
           df -h /
 
       # -----------------------------------------------------------------------
-      # 2. Checkout main branch to get the helper scripts
-      # -----------------------------------------------------------------------
-      - name: Checkout main (for scripts)
-        uses: actions/checkout@v6
-        with:
-          ref: main
-          path: ci
-
-      # -----------------------------------------------------------------------
-      # 3. Install tools
+      # 2. Install tools
       # -----------------------------------------------------------------------
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            curl jq devscripts dpkg-dev quilt rsync patch
+            curl jq rsync
 
       # -----------------------------------------------------------------------
-      # 4. Download source package from Launchpad
+      # 3. Clone from Launchpad git at the version tag
+      #    The git repository has the complete debian/ directory including
+      #    debian/rules, scripts/, templates/, etc. — unlike the source
+      #    package which only ships debian.master/ with rules.d/ fragments.
       # -----------------------------------------------------------------------
-      - name: Fetch source package from Launchpad
+      - name: Clone from Launchpad git at version tag
         run: |
-          chmod +x ci/scripts/fetch-source-pkg.sh
-          ci/scripts/fetch-source-pkg.sh "${SUITE}" "${SOURCE}" source-pkg/
+          LAUNCHPAD_URL="https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/${SUITE}"
+          GIT_TAG="Ubuntu-${VERSION}"
 
-          echo "Downloaded files:"
-          ls -lh source-pkg/
+          echo "Cloning ${LAUNCHPAD_URL} at tag ${GIT_TAG} (shallow)..."
+          git clone --depth=1 --branch "${GIT_TAG}" "${LAUNCHPAD_URL}" kernel-src/
 
-      # -----------------------------------------------------------------------
-      # 5. Extract source package
-      # -----------------------------------------------------------------------
-      - name: Extract source package
-        run: |
-          DSC=$(find source-pkg/ -name "*.dsc" | sort -V | tail -1)
-          echo "Extracting: ${DSC}"
-          # --no-check skips GPG signature verification (key not in runner keyring)
-          # Redirect verbose "upstream files modified" list to log file
-          dpkg-source --no-check -x "${DSC}" kernel-src/ \
-            > /tmp/dpkg-source.log 2>&1 || {
-            echo "dpkg-source -x failed. Last 30 lines of output:"
-            tail -30 /tmp/dpkg-source.log
-            exit 1
-          }
-          echo "Extraction complete"
+          echo "SRC_DIR=kernel-src" >> "$GITHUB_ENV"
 
-          # When an explicit output directory is given, dpkg-source -x extracts
-          # the source directly INTO that directory (not into a subdirectory).
-          SRC_DIR="kernel-src"
-          echo "SRC_DIR=${SRC_DIR}" >> "$GITHUB_ENV"
-          echo "Extracted to: ${SRC_DIR}"
-
-          # Verify the extraction produced a real kernel source tree
-          FILE_COUNT=$(find "${SRC_DIR}" -type f | wc -l)
-          echo "Extracted ${FILE_COUNT} files"
+          FILE_COUNT=$(find kernel-src/ -type f | wc -l)
+          echo "Cloned ${FILE_COUNT} files"
           [ "${FILE_COUNT}" -gt 5000 ] || {
-            echo "ERROR: Extraction produced only ${FILE_COUNT} files (expected >5000)"
-            echo "Top-level contents:"
-            ls -la "${SRC_DIR}/"
+            echo "ERROR: Too few files cloned (${FILE_COUNT})"
             exit 1
           }
 
           echo "Top-level contents:"
-          ls "${SRC_DIR}/"
+          ls kernel-src/
+
+          echo "debian/ contents:"
+          ls kernel-src/debian/ | head -20
 
       # -----------------------------------------------------------------------
-      # 6. Configure git
+      # 4. Configure git
       # -----------------------------------------------------------------------
       - name: Configure git identity
         run: |
@@ -245,7 +205,7 @@ jobs:
           git config --global user.name  "github-actions[bot]"
 
       # -----------------------------------------------------------------------
-      # 7. Prepare the suite branch
+      # 5. Prepare the suite branch
       # -----------------------------------------------------------------------
       - name: Clone repository for suite branch update
         env:
@@ -268,30 +228,19 @@ jobs:
             git rm -rf --quiet . 2>/dev/null || true
           fi
 
-      - name: Populate suite branch with extracted source
+      - name: Populate suite branch with cloned source
         run: |
           echo "Copying source tree from ${SRC_DIR} → suite-repo/"
           rsync -a --delete \
             --exclude='.git' \
             "${SRC_DIR}/" suite-repo/
 
-          # Verify rsync copied the files
           COPIED=$(find suite-repo/ -type f | wc -l)
           echo "Files in suite-repo after rsync: ${COPIED}"
           [ "${COPIED}" -gt 5000 ] || {
             echo "ERROR: rsync copied only ${COPIED} files"
             exit 1
           }
-
-          # Ensure debian/ symlink exists in the suite branch.
-          # The Ubuntu kernel source package does not include debian/ as a
-          # symlink in the .diff.gz — it is expected to be created at build
-          # time. We add it here so the noble branch is self-contained and
-          # the build can run without extra setup.
-          if [ ! -e suite-repo/debian ] && [ -d suite-repo/debian.master ]; then
-            ln -sf debian.master suite-repo/debian
-            echo "Created debian -> debian.master symlink in suite-repo"
-          fi
 
           cd suite-repo
 
@@ -301,7 +250,7 @@ jobs:
             "Ubuntu suite   : ${SUITE}" \
             "Kernel version : ${VERSION}" \
             "Upstream       : ${UPSTREAM_VERSION}" \
-            "Source         : https://launchpad.net/ubuntu/${SUITE}/+source/${SOURCE}/${VERSION}" \
+            "Source         : https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/${SUITE} (tag: Ubuntu-${VERSION})" \
             "Synced         : ${SYNC_DATE}" \
             > /tmp/commit-msg.txt
 
@@ -317,7 +266,6 @@ jobs:
       - name: Tag the commit
         run: |
           cd suite-repo
-          # Use -f to overwrite existing tag when force=true
           git tag -fa "${TAG}" -m "Ubuntu ${SUITE} kernel ${VERSION}"
           echo "Tagged: ${TAG}"
 
@@ -325,12 +273,11 @@ jobs:
         run: |
           cd suite-repo
           git push origin "${SUITE}"
-          # Use --force to overwrite existing tag when force=true
           git push --force origin "${TAG}"
           echo "Pushed branch '${SUITE}' and tag '${TAG}'"
 
       # -----------------------------------------------------------------------
-      # 7. Summary
+      # 6. Summary
       # -----------------------------------------------------------------------
       - name: Print summary
         if: always()
@@ -343,11 +290,8 @@ jobs:
           echo "| Version  | \`${VERSION}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Branch   | [\`${SUITE}\`](https://github.com/${{ github.repository }}/tree/${SUITE}) |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Tag      | [\`${TAG}\`](https://github.com/${{ github.repository }}/releases/tag/${TAG}) |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Launchpad | https://launchpad.net/ubuntu/${SUITE}/+source/${SOURCE}/${VERSION} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Source   | Launchpad git tag \`Ubuntu-${VERSION}\` |" >> "$GITHUB_STEP_SUMMARY"
 
-  # --------------------------------------------------------------------------
-  # Job 3: trigger-build
-  # --------------------------------------------------------------------------
   trigger-build:
     name: "Trigger kernel build"
     runs-on: ubuntu-24.04-arm

@@ -24,13 +24,12 @@ Mirror and CI build pipeline for Canonical Ubuntu kernel source packages.
 │                              │                                      │
 │                    ┌─────────▼──────────┐                           │
 │                    │  Job 2: sync        │                          │
-│                    │  fetch-source-pkg.sh│                          │
-│                    │  download .dsc      │                          │
-│                    │  + .orig.tar.gz     │                          │
-│                    │  + .diff.gz         │                          │
-│                    │  dpkg-source        │                          │
-│                    │  --no-check -x      │                          │
-│                    │  → full source tree │                          │
+│                    │  git clone          │                          │
+│                    │  Launchpad git      │                          │
+│                    │  tag Ubuntu-6.8.0-  │                          │
+│                    │  114.114 (shallow)  │                          │
+│                    │  → complete source  │                          │
+│                    │  incl. debian/rules │                          │
 │                    │  commit to noble    │                          │
 │                    │  branch + tag       │                          │
 │                    └─────────┬──────────┘                           │
@@ -121,9 +120,9 @@ and contain only the extracted kernel source tree.
 ### `fetch-source-pkg.yml` — Sync sources to branch
 
 Queries the Launchpad REST API for the latest published `linux` source
-package (exact name match — the API does prefix matching), downloads the
-source package files, extracts the full source tree with
-`dpkg-source --no-check -x`, and commits the result to the corresponding
+package version (exact name match), then clones the Launchpad git
+repository at the corresponding tag (`Ubuntu-<version>`) to get the
+complete source tree including `debian/rules`, and commits it to the
 suite branch.
 
 **Schedule**: daily at **04:00 UTC**  
@@ -142,7 +141,7 @@ suite branch.
 | Job | What it does |
 |-----|-------------|
 | `check-version` | Queries Launchpad API with exact `source_package_name` filter; checks if tag already exists; sets `should_sync` flag |
-| `sync` | Frees disk space; downloads source package via `fetch-source-pkg.sh`; extracts with `dpkg-source --no-check -x`; verifies >5000 files; commits to suite branch; creates tag |
+| `sync` | Frees disk space; `git clone --depth=1 --branch Ubuntu-<version>` from Launchpad git; verifies >5000 files; commits to suite branch; creates tag |
 | `trigger-build` | Dispatches `build-kernel.yml` with `suite`, `kernel_version`, `arch=arm64`, `build_mode=docker` |
 
 **Idempotent**: if tag `noble-6.8.0-114.114` already exists, the workflow exits cleanly without downloading anything.
@@ -228,11 +227,14 @@ All scripts run on Ubuntu 24.04 arm64.
 # → 6.8.0-114.114
 ```
 
-### Download the source package
+### Clone the kernel source (buildable)
 
 ```bash
-./scripts/fetch-source-pkg.sh noble linux ./source-pkg/
+# Clones from Launchpad git at the latest Ubuntu-<version> tag
+./scripts/fetch-source-pkg.sh noble linux ./kernel-src/
 ```
+
+This produces a complete, buildable source tree with `debian/rules` — the same source the CI workflow uses.
 
 ### Build kernel packages
 
@@ -243,31 +245,39 @@ All scripts run on Ubuntu 24.04 arm64.
 
 ---
 
-## Source package anatomy
+## Source and build notes
 
-The Ubuntu Noble kernel source package uses **Debian source format 1.0**:
+### Why git instead of the source package?
 
-| File | Size | Description |
-|------|------|-------------|
-| `linux_X.Y.Z-A.B.dsc` | ~10 KB | Source descriptor with SHA256 checksums |
-| `linux_X.Y.Z.orig.tar.gz` | ~220 MB | Pristine upstream kernel tarball |
-| `linux_X.Y.Z-A.B.diff.gz` | ~8 MB | Ubuntu patch set applied on top of upstream |
+The Ubuntu kernel source package (format 1.0) ships only `debian.master/`
+with `rules.d/` fragments — **`debian/rules` is NOT included**. The complete
+`debian/` directory (with `rules`, `scripts/`, `templates/`, etc.) lives only
+in the Launchpad git repository.
 
-`dpkg-source --no-check -x` applies the diff to the orig tarball and
-produces the full patched source tree, which is committed to the suite branch.
+The sync workflow therefore clones from:
+```
+https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/<suite>
+```
+at the tag `Ubuntu-<version>` (e.g. `Ubuntu-6.8.0-114.114`).
 
-**Extracted source tree layout (noble branch):**
+### Noble branch source tree layout
 
 ```
 arch/           drivers/        fs/             kernel/
-debian          → debian.master/ (symlink, may need recreating after git checkout)
-debian.master/  ← Ubuntu packaging: rules, control, changelog, configs
+debian/         ← complete Ubuntu packaging (rules, scripts/, templates/, …)
 Makefile        net/            scripts/        ...
 ```
 
-The Ubuntu kernel uses `debian.master/` as the actual packaging directory.
-`debian/` is a symlink to it. The build workflow automatically recreates
-the symlink if git did not preserve it.
+### About the helper scripts
+
+| Script | Purpose | Used by workflow? |
+|--------|---------|-------------------|
+| `scripts/check-version.sh` | Query latest version from Launchpad API | No (workflow has inline equivalent) |
+| `scripts/fetch-source-pkg.sh` | Clone from Launchpad git at latest version tag (buildable source) | No (workflow has inline equivalent) |
+| `scripts/build-kernel-deb.sh` | Build kernel `.deb` packages locally | No (workflow has inline equivalent) |
+
+`scripts/fetch-source-pkg.sh` clones from the Launchpad git repository (same
+as the CI workflow) and produces a complete, buildable source tree locally.
 
 > **Note**: The Launchpad API `source_name=` parameter does prefix matching.
 > The workflow uses an exact `source_package_name` filter in jq to ensure

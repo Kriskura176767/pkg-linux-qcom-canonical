@@ -167,33 +167,9 @@ jobs:
               apt-get build-dep -y linux
               cd kernel-src/
 
-              echo '=== kernel-src top-level ==='
-              ls -la | head -30
-
-              echo '=== debian.master/ contents ==='
-              ls -la debian.master/ 2>/dev/null | head -20 || echo 'debian.master NOT FOUND'
-
-              echo '=== debian symlink before fix ==='
-              ls -la debian 2>/dev/null || echo 'debian does not exist'
-
-              # The Ubuntu kernel uses debian.master/ with debian/ as a symlink.
-              if [ ! -e debian ] && [ -d debian.master ]; then
-                ln -sf debian.master debian
-                echo 'Created debian -> debian.master symlink'
-              fi
-
-              echo '=== debian symlink after fix ==='
-              ls -la debian 2>/dev/null || echo 'debian STILL does not exist'
-              ls -la debian/rules 2>/dev/null || echo 'debian/rules NOT FOUND'
-
-              # The Ubuntu kernel does not ship debian/rules directly.
-              # debian.master/ has rules.d/ fragments; debian/rules is generated
-              # by running the reconstruct script.
-              echo '=== Running debian/reconstruct ==='
-              bash debian/reconstruct
-
-              echo '=== debian/rules after reconstruct ==='
-              ls -la debian/rules 2>/dev/null || echo 'debian/rules STILL not found after reconstruct'
+              # The noble branch is now sourced from the Launchpad git repository
+              # which includes the complete debian/ directory with debian/rules.
+              echo "debian/rules: $(ls -la debian/rules 2>/dev/null || echo 'NOT FOUND')"
 
               export DEB_BUILD_OPTIONS='parallel=${JOBS} nocheck'
               fakeroot debian/rules ${TARGET}
