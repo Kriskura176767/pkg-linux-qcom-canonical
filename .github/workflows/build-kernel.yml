@@ -173,6 +173,15 @@ jobs:
 
               export DEB_BUILD_OPTIONS='parallel=${JOBS} nocheck'
               fakeroot debian/rules ${TARGET}
+
+              echo '=== Locating built .deb files ==='
+              find "${GITHUB_WORKSPACE}" -name '*.deb' | sort || true
+
+              echo '=== Copying .deb files to output/ ==='
+              mkdir -p "${GITHUB_WORKSPACE}/output/"
+              find "${GITHUB_WORKSPACE}" -name '*.deb' \
+                -exec cp {} "${GITHUB_WORKSPACE}/output/" \;
+              ls -lh "${GITHUB_WORKSPACE}/output/" || echo 'No .deb files found'
             "
 
       # -----------------------------------------------------------------------
