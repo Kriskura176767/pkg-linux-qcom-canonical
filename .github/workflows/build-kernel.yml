@@ -160,12 +160,9 @@ jobs:
             bash -c '
               set -euo pipefail
 
-              # Enable deb-src (Ubuntu 24.04 uses DEB822 format)
-              if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
-                sed -i "s/^Types: deb$/Types: deb deb-src/" /etc/apt/sources.list.d/ubuntu.sources
-              else
-                grep "^deb " /etc/apt/sources.list | sed "s/^deb /deb-src /" >> /etc/apt/sources.list
-              fi
+              # Enable deb-src so apt-get build-dep can resolve build dependencies.
+              # pkg-builder:noble is Ubuntu 24.04 which uses DEB822 format.
+              sed -i "s/^Types: deb$/Types: deb deb-src/" /etc/apt/sources.list.d/ubuntu.sources
               apt-get update -qq
               apt-get build-dep -y linux
 
