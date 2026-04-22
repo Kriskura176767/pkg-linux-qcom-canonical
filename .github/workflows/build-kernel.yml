@@ -146,43 +146,50 @@ jobs:
 
           echo "Building: suite=${SUITE}  target=${TARGET}  arch=${ARCH}  jobs=${JOBS}"
 
+          # IMPORTANT: use single quotes for bash -c so the outer shell does NOT
+          # expand $(...) or ${VAR} before passing the string to docker.
+          # JOBS, TARGET, and WS are passed as -e env vars and expanded inside
+          # the container by the container's own bash.
           docker run -i --privileged --rm \
             -v "${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE}" \
             --workdir="${GITHUB_WORKSPACE}" \
+            -e JOBS="${JOBS}" \
+            -e TARGET="${TARGET}" \
+            -e WS="${GITHUB_WORKSPACE}" \
             "ghcr.io/qualcomm-linux/pkg-builder:${SUITE}" \
-            bash -c "
-              set -e
-              # Enable deb-src so apt-get build-dep can resolve build dependencies.
-              # Ubuntu 24.04 uses DEB822 format (/etc/apt/sources.list.d/ubuntu.sources).
+            bash -c '
+              set -euo pipefail
+
+              # Enable deb-src (Ubuntu 24.04 uses DEB822 format)
               if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
-                sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources
+                sed -i "s/^Types: deb$/Types: deb deb-src/" /etc/apt/sources.list.d/ubuntu.sources
               else
-                grep '^deb ' /etc/apt/sources.list | sed 's/^deb /deb-src /' >> /etc/apt/sources.list
+                grep "^deb " /etc/apt/sources.list | sed "s/^deb /deb-src /" >> /etc/apt/sources.list
               fi
               apt-get update -qq
-              # Install build dependencies for the linux source package.
-              # Using the source package name is more reliable than pointing
-              # apt-get at a local directory (requires apt >= 1.1 and a
-              # debian/control symlink to be in place first).
               apt-get build-dep -y linux
+
               cd kernel-src/
+              echo "debian/debian.env: $(cat debian/debian.env 2>/dev/null || echo NOT FOUND)"
+              ls -la debian/rules && echo "debian/rules: OK" || { echo "debian/rules: NOT FOUND"; exit 1; }
 
-              # The noble branch is now sourced from the Launchpad git repository
-              # which includes the complete debian/ directory with debian/rules.
-              echo "debian/rules: $(ls -la debian/rules 2>/dev/null || echo 'NOT FOUND')"
+              # Heartbeat every 2 min — kernel build takes 60-90 min with minimal output
+              while true; do echo "[$(date -u +%H:%M:%S)] kernel build still running..."; sleep 120; done &
+              HEARTBEAT=$!
 
-              export DEB_BUILD_OPTIONS='parallel=${JOBS} nocheck'
-              fakeroot debian/rules ${TARGET}
+              echo "=== Starting: fakeroot debian/rules ${TARGET} (jobs=${JOBS}) ==="
+              export DEB_BUILD_OPTIONS="parallel=${JOBS} nocheck"
+              fakeroot debian/rules "${TARGET}"
 
-              echo '=== Locating built .deb files ==='
-              find "${GITHUB_WORKSPACE}" -name '*.deb' | sort || true
+              kill "${HEARTBEAT}" 2>/dev/null || true
 
-              echo '=== Copying .deb files to output/ ==='
-              mkdir -p "${GITHUB_WORKSPACE}/output/"
-              find "${GITHUB_WORKSPACE}" -name '*.deb' \
-                -exec cp {} "${GITHUB_WORKSPACE}/output/" \;
-              ls -lh "${GITHUB_WORKSPACE}/output/" || echo 'No .deb files found'
-            "
+              echo "=== Locating built .deb files ==="
+              find "${WS}" -name "*.deb" | sort || true
+
+              mkdir -p "${WS}/output/"
+              find "${WS}" -name "*.deb" -exec cp {} "${WS}/output/" \;
+              ls -lh "${WS}/output/" || echo "No .deb files found"
+            '
 
       # -----------------------------------------------------------------------
       # 6b. Build kernel packages natively on the runner (native mode)
