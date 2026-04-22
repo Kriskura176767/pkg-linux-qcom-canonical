@@ -5,12 +5,10 @@
 # Builds Ubuntu kernel .deb packages from a suite branch
 # (e.g. "noble") that was populated by fetch-source-pkg.yml.
 #
-# Build modes:
-#   docker  (default) – runs the build inside the suite-matched
-#                       ghcr.io/qualcomm-linux/pkg-builder:<suite> container
-#                       via docker-pkg-build; ensures a clean, reproducible
-#                       environment that exactly matches the target distro.
-#   native            – runs dpkg-buildpackage directly on the runner host.
+# The build always runs inside the suite-matched
+# ghcr.io/qualcomm-linux/pkg-builder:<suite> container via
+# docker-pkg-build, ensuring a clean, reproducible environment
+# that exactly matches the target distro.
 #
 # Output .deb packages are stored in two places:
 #   1. S3 bucket       – qli-prd-lecore-gh-artifacts (permanent)
@@ -47,14 +45,6 @@ on:
           - generic
           - lowlatency
           - all
-      build_mode:
-        description: "Build mode: docker (suite-matched container) or native (host)"
-        required: false
-        default: "docker"
-        type: choice
-        options:
-          - docker
-          - native
 
 permissions:
   contents: write   # upload assets to release tag
@@ -64,15 +54,14 @@ jobs:
   # Job: build
   # --------------------------------------------------------------------------
   build:
-    name: "Build ${{ inputs.suite }} ${{ inputs.flavor }} (${{ inputs.arch }}) [${{ inputs.build_mode || 'docker' }}]"
+    name: "Build ${{ inputs.suite }} ${{ inputs.flavor }} (${{ inputs.arch }})"
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 360
 
     env:
-      SUITE:       ${{ inputs.suite       || 'noble' }}
-      ARCH:        ${{ inputs.arch        || 'arm64' }}
-      FLAVOR:      ${{ inputs.flavor      || 'generic' }}
-      BUILD_MODE:  ${{ inputs.build_mode  || 'docker' }}
+      SUITE:   ${{ inputs.suite   || 'noble' }}
+      ARCH:    ${{ inputs.arch    || 'arm64' }}
+      FLAVOR:  ${{ inputs.flavor  || 'generic' }}
 
     steps:
       # -----------------------------------------------------------------------
@@ -115,10 +104,9 @@ jobs:
           echo "REPO_NAME=${GITHUB_REPOSITORY#*/}"  >> "$GITHUB_ENV"
 
       # -----------------------------------------------------------------------
-      # 4. Checkout docker-pkg-build (docker mode only)
+      # 4. Checkout docker-pkg-build
       # -----------------------------------------------------------------------
       - name: Checkout docker-pkg-build
-        if: env.BUILD_MODE == 'docker'
         uses: actions/checkout@v6
         with:
           repository: qualcomm-linux/docker-pkg-build
@@ -126,20 +114,18 @@ jobs:
           path: docker-pkg-build
 
       # -----------------------------------------------------------------------
-      # 5. Build the suite-matched pkg-builder docker image (docker mode only)
+      # 5. Build the suite-matched pkg-builder docker image
       # -----------------------------------------------------------------------
       - name: Build docker image for suite (${{ inputs.suite || 'noble' }})
-        if: env.BUILD_MODE == 'docker'
         run: |
           ./docker-pkg-build/docker_deb_build.py --rebuild -d "${SUITE}"
           docker image ls
 
       # -----------------------------------------------------------------------
-      # 6a. Build kernel packages inside the suite-matched container (docker)
-      #     The workspace is bind-mounted so output .deb files land on the host.
+      # 6. Build kernel packages inside the suite-matched container
+      #    The workspace is bind-mounted so output .deb files land on the host.
       # -----------------------------------------------------------------------
-      - name: Build kernel packages (docker – ghcr.io/qualcomm-linux/pkg-builder:${{ inputs.suite || 'noble' }})
-        if: env.BUILD_MODE == 'docker'
+      - name: Build kernel packages (ghcr.io/qualcomm-linux/pkg-builder:${{ inputs.suite || 'noble' }})
         run: |
           JOBS=$(nproc)
           if [ "${FLAVOR}" = "all" ]; then TARGET="binary"; else TARGET="binary-${FLAVOR}"; fi
@@ -206,36 +192,6 @@ jobs:
             '
 
       # -----------------------------------------------------------------------
-      # 6b. Build kernel packages natively on the runner (native mode)
-      # -----------------------------------------------------------------------
-      - name: Install build tools (native mode)
-        if: env.BUILD_MODE == 'native'
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            build-essential fakeroot devscripts dpkg-dev debhelper dh-exec rsync
-          sudo apt-get build-dep -y ./kernel-src/
-
-      - name: Build kernel packages (native)
-        if: env.BUILD_MODE == 'native'
-        run: |
-          JOBS=$(nproc)
-          if [ "${FLAVOR}" = "all" ]; then TARGET="binary"; else TARGET="binary-${FLAVOR}"; fi
-
-          echo "Building: suite=${SUITE}  target=${TARGET}  arch=${ARCH}  jobs=${JOBS}"
-          export DEB_BUILD_OPTIONS="parallel=${JOBS} nocheck"
-
-          (
-            cd kernel-src/
-            # Ensure debian/ symlink exists (Ubuntu kernel uses debian.master/)
-            if [ ! -e debian ] && [ -d debian.master ]; then
-              ln -sf debian.master debian
-              echo "Created debian -> debian.master symlink"
-            fi
-            fakeroot debian/rules "${TARGET}"
-          )
-
-      # -----------------------------------------------------------------------
       # 7. Collect output packages
       #    The Ubuntu kernel build drops .deb files one level above the
       #    source tree (i.e. in GITHUB_WORKSPACE, not inside kernel-src/).
@@ -297,9 +253,9 @@ jobs:
                --json tagName -q .tagName \
                >/dev/null 2>&1; then
             echo "Creating GitHub Release ${TAG}..."
-            printf 'Ubuntu %s kernel %s built for arm64.\n\nFlavour: %s\nBuild mode: %s\nRunner: %s\n' \
+            printf 'Ubuntu %s kernel %s built for arm64.\n\nFlavour: %s\nRunner: %s\n' \
               "${SUITE}" "${{ inputs.kernel_version }}" \
-              "${FLAVOR}" "${BUILD_MODE}" "${{ runner.name }}" \
+              "${FLAVOR}" "${{ runner.name }}" \
               > /tmp/release-notes.md
             gh release create "${TAG}" \
               --repo "${{ github.repository }}" \
@@ -328,7 +284,6 @@ jobs:
           echo "| Suite        | \`${SUITE}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Architecture | \`${ARCH}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Flavour      | \`${FLAVOR}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Build mode   | \`${BUILD_MODE}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Container    | \`ghcr.io/qualcomm-linux/pkg-builder:${SUITE}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Runner       | \`${{ runner.name }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
