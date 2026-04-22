@@ -115,7 +115,7 @@ jobs:
           fi
 
           if git ls-remote --exit-code --tags \
-               "https://github.com/${{ github.repository }}.git" \
+               "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" \
                "refs/tags/${TAG}" >/dev/null 2>&1; then
             echo "should_sync=false" >> "$GITHUB_OUTPUT"
             echo "Tag '${TAG}' already exists – nothing to do"
@@ -315,7 +315,6 @@ jobs:
             --field suite="${SUITE}" \
             --field kernel_version="${VERSION}" \
             --field arch="arm64" \
-            --field flavor="generic" \
-            --field build_mode="docker"
+            --field flavor="generic"
 
           echo "Build workflow dispatched for ${SUITE} ${VERSION}"
