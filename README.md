@@ -7,62 +7,80 @@ Mirror and CI build pipeline for Canonical Ubuntu kernel source packages.
 ## End-to-end pipeline
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        DAILY (04:00 UTC)                            │
-│                                                                     │
-│  Launchpad                                                          │
-│  api.launchpad.net  ──► fetch-source-pkg.yml                        │
-│                              │                                      │
-│                    ┌─────────▼──────────┐                           │
-│                    │  Job 1: check-version                          │
-│                    │  curl Launchpad API │                           │
-│                    │  exact match: linux │                          │
-│                    │  → noble 6.8.0-114  │                          │
-│                    │  tag exists? YES→skip                          │
-│                    │             NO ↓   │                           │
-│                    └─────────┬──────────┘                           │
-│                              │                                      │
-│                    ┌─────────▼──────────┐                           │
-│                    │  Job 2: sync        │                          │
-│                    │  git clone          │                          │
-│                    │  Launchpad git      │                          │
-│                    │  tag Ubuntu-6.8.0-  │                          │
-│                    │  114.114 (shallow)  │                          │
-│                    │  → complete source  │                          │
-│                    │  incl. debian/rules │                          │
-│                    │  commit to noble    │                          │
-│                    │  branch + tag       │                          │
-│                    └─────────┬──────────┘                           │
-│                              │                                      │
-│                    ┌─────────▼──────────┐                           │
-│                    │  Job 3: trigger     │                          │
-│                    │  gh workflow run    │                          │
-│                    │  build-kernel.yml   │                          │
-│                    │  suite=noble        │                          │
-│                    │  build_mode=docker  │                          │
-│                    └─────────┬──────────┘                           │
-│                              │                                      │
-│                    ┌─────────▼──────────┐                           │
-│                    │  build-kernel.yml   │                          │
-│                    │  checkout noble     │                          │
-│                    │  branch             │                          │
-│                    │  checkout           │                          │
-│                    │  docker-pkg-build   │                          │
-│                    │  docker_deb_build.py│                          │
-│                    │  --rebuild -d noble │                          │
-│                    │  docker run         │                          │
-│                    │  pkg-builder:noble  │                          │
-│                    │  debian/rules       │                          │
-│                    │  binary-generic     │                          │
-│                    └─────────┬──────────┘                           │
-│                              │                                      │
-│          ┌───────────────────┼───────────────────┐                  │
-│          ▼                   ▼                   ▼                  │
-│   S3 Bucket            GitHub Artifact     GitHub Release           │
-│   qli-prd-lecore-      90-day retention    noble-6.8.0-114.114      │
-│   gh-artifacts         Actions → run       Releases → Assets        │
-│   (self-hosted only)   → Artifacts         (permanent)              │
-└─────────────────────────────────────────────────────────────────────┘
+SCHEDULE: daily 04:00 UTC  ·  RUNNER: ubuntu-24.04-arm
+══════════════════════════════════════════════════════════════════════════════
+
+  Launchpad REST API
+  (api.launchpad.net)
+         │
+         ▼
+╔════════════════════════════════════════════════════════════════════════════╗
+║  fetch-source-pkg.yml                                                      ║
+║                                                                            ║
+║  ┌──────────────────────────────────────────────────────────────────────┐ ║
+║  │  Job 1 · check-version                                               │ ║
+║  │                                                                      │ ║
+║  │  Query Launchpad API (ws.size=300, exact source_package_name match)  │ ║
+║  │  → latest version: noble 6.8.0-114.114                              │ ║
+║  │                                                                      │ ║
+║  │  git ls-remote (authenticated) → tag noble-6.8.0-114.114 exists?    │ ║
+║  │                                                                      │ ║
+║  │    YES ──▶  should_sync=false  ──▶  workflow exits cleanly          │ ║
+║  │    NO  ──▶  should_sync=true   ──▶  continue ↓                      │ ║
+║  └──────────────────────────────────────────────────────────────────────┘ ║
+║                            │ should_sync=true                              ║
+║                            ▼                                               ║
+║  ┌──────────────────────────────────────────────────────────────────────┐ ║
+║  │  Job 2 · sync                                                        │ ║
+║  │                                                                      │ ║
+║  │  Free disk space (~10 GB)                                            │ ║
+║  │  git clone --depth=1 Launchpad git @ Ubuntu-6.8.0-114.114           │ ║
+║  │  Verify >5000 files cloned                                           │ ║
+║  │  rsync source → noble branch (orphan)                               │ ║
+║  │  git commit + tag noble-6.8.0-114.114                               │ ║
+║  │  git push branch + tag                                               │ ║
+║  └──────────────────────────────────────────────────────────────────────┘ ║
+║                            │ sync succeeded                                ║
+║                            ▼                                               ║
+║  ┌──────────────────────────────────────────────────────────────────────┐ ║
+║  │  Job 3 · trigger-build                                               │ ║
+║  │                                                                      │ ║
+║  │  gh workflow run build-kernel.yml                                    │ ║
+║  │    suite=noble  kernel_version=6.8.0-114.114  arch=arm64            │ ║
+║  └──────────────────────────────────────────────────────────────────────┘ ║
+╚════════════════════════════════════════════════════════════════════════════╝
+         │
+         ▼
+╔════════════════════════════════════════════════════════════════════════════╗
+║  build-kernel.yml                                                          ║
+║                                                                            ║
+║  Checkout noble branch  ──▶  kernel-src/                                  ║
+║  Checkout docker-pkg-build  ──▶  docker-pkg-build/                        ║
+║  docker_deb_build.py --rebuild -d noble                                    ║
+║                                                                            ║
+║  ┌──────────────────────────────────────────────────────────────────────┐ ║
+║  │  docker run --privileged ghcr.io/qualcomm-linux/pkg-builder:noble   │ ║
+║  │                                                                      │ ║
+║  │  apt-get build-dep linux                                             │ ║
+║  │  fakeroot make -f debian/rules debian/control   ← generate certs    │ ║
+║  │  fakeroot debian/rules binary-generic do_skip_checks=true           │ ║
+║  └──────────────────────────────────────────────────────────────────────┘ ║
+║                                                                            ║
+║  Collect .deb files  ──▶  output/                                         ║
+╚════════════════════════════════════════════════════════════════════════════╝
+         │
+         ├──────────────────────┬───────────────────────┐
+         ▼                      ▼                       ▼
+  ┌──────────────┐    ┌──────────────────┐    ┌──────────────────┐
+  │  S3 Bucket   │    │ GitHub Artifact  │    │  GitHub Release  │
+  │              │    │                  │    │                  │
+  │ qli-prd-     │    │ 90-day retention │    │ noble-6.8.0-     │
+  │ lecore-gh-   │    │ Actions → run    │    │ 114.114          │
+  │ artifacts    │    │ → Artifacts      │    │ Releases →       │
+  │              │    │                  │    │ Assets           │
+  │ self-hosted  │    │ always           │    │ permanent        │
+  │ runner only  │    │ available        │    │                  │
+  └──────────────┘    └──────────────────┘    └──────────────────┘
 ```
 
 All jobs run on: `ubuntu-24.04-arm` (GitHub-hosted, Ubuntu 24.04 arm64)  
@@ -104,7 +122,7 @@ and contain only the extracted kernel source tree.
 
 | Resource | URL pattern | Used by |
 |----------|-------------|---------|
-| Launchpad REST API | `https://api.launchpad.net/1.0/ubuntu/+archive/primary?ws.op=getPublishedSources&source_name=linux&distro_series=/ubuntu/<suite>` | `check-version` job — queries for the latest published version number |
+| Launchpad REST API | `https://api.launchpad.net/1.0/ubuntu/+archive/primary?ws.op=getPublishedSources&source_name=linux&distro_series=/ubuntu/<suite>&ws.size=300` | `check-version` job — queries for the latest published version number |
 | Launchpad git repository | `https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/<suite>` | `sync` job — clones the complete source tree at tag `Ubuntu-<version>` |
 | GitHub Releases | https://github.com/qualcomm-linux/pkg-linux-qcom-canonical/releases | `build-kernel` job — attaches built `.deb` packages |
 
@@ -139,9 +157,9 @@ suite branch.
 
 | Job | What it does |
 |-----|-------------|
-| `check-version` | Queries Launchpad API with exact `source_package_name` filter; checks if tag already exists; sets `should_sync` flag |
+| `check-version` | Queries Launchpad API (`ws.size=300`) with exact `source_package_name` filter; checks tag existence via authenticated `git ls-remote`; sets `should_sync` flag |
 | `sync` | Frees disk space; `git clone --depth=1 --branch Ubuntu-<version>` from Launchpad git; verifies >5000 files; commits to suite branch; creates tag |
-| `trigger-build` | Dispatches `build-kernel.yml` with `suite`, `kernel_version`, `arch=arm64`, `build_mode=docker` |
+| `trigger-build` | Dispatches `build-kernel.yml` with `suite`, `kernel_version`, `arch=arm64`, `flavor=generic` |
 
 **Idempotent**: if tag `noble-6.8.0-114.114` already exists, the workflow exits cleanly without downloading anything.
 
@@ -165,19 +183,19 @@ manually via `Actions → Build: Canonical Kernel .deb Packages → Run workflow
 | `kernel_version` | — | Version string for release asset attachment |
 | `arch` | `arm64` | Target architecture |
 | `flavor` | `generic` | Kernel flavour: `generic`, `lowlatency`, or `all` |
-| `build_mode` | `docker` | `docker` (suite-matched container) or `native` (host) |
 
-**Build steps (docker mode)**:
+**Build steps**:
 1. Free up disk space (~10 GB)
 2. Checkout suite branch → `kernel-src/`
 3. Checkout `qualcomm-linux/docker-pkg-build@main` → `docker-pkg-build/`
 4. Build docker image: `docker_deb_build.py --rebuild -d <suite>`
-5. Run build inside container:
+5. Run build inside `ghcr.io/qualcomm-linux/pkg-builder:<suite>` container:
    ```
-   docker run ghcr.io/qualcomm-linux/pkg-builder:<suite>
-     → apt-get build-dep kernel-src/
-     → fakeroot debian/rules binary-<flavor>
+   apt-get build-dep linux
+   fakeroot make -f debian/rules debian/control
+   fakeroot debian/rules binary-<flavor> do_skip_checks=true
    ```
+   See [Build container notes](#build-container-notes) for why these exact invocations are used.
 6. Collect `.deb` files from workspace root
 
 **Output**:
@@ -259,6 +277,7 @@ GET https://api.launchpad.net/1.0/ubuntu/+archive/primary
     &distro_series=/ubuntu/noble
     &status=Published
     &order_by_date=true
+    &ws.size=300
 
 Response (JSON):
 {
@@ -315,9 +334,11 @@ Makefile        net/            scripts/        ...
 `scripts/fetch-source-pkg.sh` clones from the Launchpad git repository (same
 as the CI workflow) and produces a complete, buildable source tree locally.
 
-> **Note**: The Launchpad API `source_name=` parameter does prefix matching.
-> The workflow uses an exact `source_package_name` filter in jq to ensure
-> `linux` is fetched and not `linux-meta-raspi` or other `linux-*` packages.
+> **Note**: The Launchpad API `source_name=` parameter does prefix matching,
+> returning all `linux-*` packages. The workflow uses `ws.size=300` to ensure
+> the full result set is returned, then applies an exact `source_package_name`
+> filter in jq to select only `linux` and not `linux-meta`, `linux-hwe-6.8`,
+> `linux-raspi`, or other `linux-*` variants.
 
 ---
 
@@ -340,7 +361,7 @@ Tags use `<suite>-X.Y.Z-A.B`, e.g. `noble-6.8.0-114.114`.
 | Suite | Codename | Status | Kernel |
 |-------|----------|--------|--------|
 | `noble` | Noble Numbat | 24.04 LTS — **active** | 6.8 |
-| `questing` | Questing Quokka | 25.04 — add when available | TBD |
+| `questing` | Questing Quokka | 25.04 — **active** | TBD |
 | `resolute` | Resolute Ringtail | 25.10 — add when available | TBD |
 
 To add a new suite, trigger `fetch-source-pkg.yml` with the desired
@@ -351,6 +372,65 @@ gh workflow run fetch-source-pkg.yml \
   --repo qualcomm-linux/pkg-linux-qcom-canonical \
   --field suite=questing
 ```
+
+---
+
+## Build container notes
+
+### Pre-generating `debian/control` and certificate files
+
+Before the main kernel compilation starts, the build runs:
+
+```bash
+fakeroot make -f debian/rules debian/control
+```
+
+This generates two things the kernel build requires:
+
+- **`debian/canonical-certs.pem`** — the certificate file referenced by the
+  kernel's `certs/x509_certificate_list` target. Without it the build fails
+  immediately with:
+  ```
+  No rule to make target 'debian/canonical-certs.pem',
+  needed by 'certs/x509_certificate_list'
+  ```
+- **`debian/control`** — the Debian package control stub used by later build
+  steps.
+
+**Why `fakeroot make -f debian/rules` and not `fakeroot debian/rules`?**
+
+`fakeroot` is a shell script (`/usr/bin/fakeroot`) that execs the given command
+via `/bin/sh` (dash). Dash reads the shebang of `debian/rules`
+(`#!/usr/bin/make -f`) and tries to resolve the interpreter at exec time. In
+the container environment this resolution fails silently, producing:
+
+```
+/usr/bin/fakeroot: 175: debian/rules: not found   (exit 127)
+```
+
+Invoking `make -f debian/rules` explicitly bypasses the shebang lookup
+entirely — `make` is resolved directly from PATH and the Makefile is passed
+via `-f`.
+
+---
+
+### Skipping the Rust config policy check (`do_skip_checks=true`)
+
+The Ubuntu kernel build system runs a config policy check
+(`debian/rules.d/4-checks.mk`) that requires `CONFIG_RUST_IS_AVAILABLE=y`
+for all supported architectures including arm64. This check fails in the
+`pkg-builder` container because `bindgen-0.65` is not available, so
+`CONFIG_RUST_IS_AVAILABLE` is set to `-` instead of `y`:
+
+```
+check-config: CONFIG_RUST_IS_AVAILABLE changed from y to -
+make: *** [debian/rules.d/4-checks.mk:15: config-prepare-check-generic] Error 1
+```
+
+Passing `do_skip_checks=true` to `fakeroot debian/rules` bypasses this policy
+check. This is the standard approach for non-official builds and is equivalent
+to how Canonical's own CI handles environments where optional toolchains are
+unavailable.
 
 ---
 
