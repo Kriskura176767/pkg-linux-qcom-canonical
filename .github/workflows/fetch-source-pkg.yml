@@ -78,6 +78,7 @@ jobs:
           API+="&distro_series=/ubuntu/${SUITE}"
           API+="&status=Published"
           API+="&order_by_date=true"
+          API+="&ws.size=300"
 
           echo "Querying: ${API}"
           RESP=$(curl -fsSL "${API}")
