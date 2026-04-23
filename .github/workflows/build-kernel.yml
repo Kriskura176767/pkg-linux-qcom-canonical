@@ -45,6 +45,15 @@ on:
           - generic
           - lowlatency
           - all
+      runner:
+        description: "Runner to use for the build"
+        required: false
+        default: "ubuntu-24.04-arm"
+        type: choice
+        options:
+          - ubuntu-24.04-arm
+          - bcollaku-self-hosted
+          - lecore-prd-u2404-arm64-xlrg-od-ephem
 
 permissions:
   contents: write   # upload assets to release tag
@@ -55,7 +64,7 @@ jobs:
   # --------------------------------------------------------------------------
   build:
     name: "Build ${{ inputs.suite }} ${{ inputs.flavor }} (${{ inputs.arch }})"
-    runs-on: ubuntu-24.04-arm
+    runs-on: ${{ inputs.runner || 'ubuntu-24.04-arm' }}
     timeout-minutes: 360
 
     env:
