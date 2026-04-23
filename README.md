@@ -62,7 +62,7 @@ SCHEDULE: daily 04:00 UTC  ·  RUNNER: ubuntu-24.04-arm
 ║  │  docker run --privileged ghcr.io/qualcomm-linux/pkg-builder:noble   │ ║
 ║  │                                                                      │ ║
 ║  │  apt-get build-dep linux                                             │ ║
-║  │  fakeroot make -f debian/rules debian/control   ← generate certs    │ ║
+║  │  fakeroot make -f debian/rules clean            ← setup env         │ ║
 ║  │  fakeroot debian/rules binary-generic do_skip_checks=true           │ ║
 ║  └──────────────────────────────────────────────────────────────────────┘ ║
 ║                                                                            ║
@@ -192,7 +192,7 @@ manually via `Actions → Build: Canonical Kernel .deb Packages → Run workflow
 5. Run build inside `ghcr.io/qualcomm-linux/pkg-builder:<suite>` container:
    ```
    apt-get build-dep linux
-   fakeroot make -f debian/rules debian/control
+   fakeroot make -f debian/rules clean
    fakeroot debian/rules binary-<flavor> do_skip_checks=true
    ```
    See [Build container notes](#build-container-notes) for why these exact invocations are used.
@@ -377,25 +377,37 @@ gh workflow run fetch-source-pkg.yml \
 
 ## Build container notes
 
-### Pre-generating `debian/control` and certificate files
+### Build environment setup (`debian/rules clean`)
 
 Before the main kernel compilation starts, the build runs:
 
 ```bash
-fakeroot make -f debian/rules debian/control
+fakeroot make -f debian/rules clean
 ```
 
-This generates two things the kernel build requires:
+This is the **standard Ubuntu kernel build setup path** — the same entry point
+Canonical's own build infrastructure uses. The `clean` target:
 
-- **`debian/canonical-certs.pem`** — the certificate file referenced by the
-  kernel's `certs/x509_certificate_list` target. Without it the build fails
-  immediately with:
+- Runs `debian/control` as a dependency, which generates:
+  - **`debian/canonical-certs.pem`** — the X.509 certificate embedded into the
+    kernel image for module signing. Required by the kernel's
+    `certs/x509_certificate_list` make target. Without it the build fails
+    immediately:
+    ```
+    No rule to make target 'debian/canonical-certs.pem',
+    needed by 'certs/x509_certificate_list'
+    ```
+  - **`debian/control`** — the Debian package control stub
+- Creates **`debian/changelog → debian.master/changelog`** symlink. The Ubuntu
+  kernel source tree does not include `debian/changelog` directly — the
+  changelog lives in `debian.master/changelog`. The `dh_installchangelogs`
+  debhelper tool (called at the end of `binary-generic`) requires this symlink
+  to exist or the build fails after 2+ hours of compilation:
   ```
-  No rule to make target 'debian/canonical-certs.pem',
-  needed by 'certs/x509_certificate_list'
+  dh_installchangelogs: error: cannot open file debian/changelog
+  make: *** [debian/rules.d/2-binary-arch.mk:572: binary-generic] Error 25
   ```
-- **`debian/control`** — the Debian package control stub used by later build
-  steps.
+- Removes any stale build artifacts
 
 **Why `fakeroot make -f debian/rules` and not `fakeroot debian/rules`?**
 

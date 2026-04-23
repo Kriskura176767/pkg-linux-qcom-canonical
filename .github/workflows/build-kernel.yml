@@ -160,18 +160,22 @@ jobs:
               while true; do echo "[$(date -u +%H:%M:%S)] kernel build still running..."; sleep 120; done &
               HEARTBEAT=$!
 
-              # Generate debian/canonical-certs.pem and debian/control before
-              # the kernel build. The kernel certs/x509_certificate_list target
-              # requires debian/canonical-certs.pem to exist before compilation.
+              # Run the clean target to set up the full build environment before
+              # compilation. This is the standard Ubuntu kernel build setup path:
+              #   - runs debian/control as a dependency, generating
+              #     debian/canonical-certs.pem (required by certs/x509_certificate_list)
+              #     and debian/control
+              #   - creates debian/changelog → debian.master/changelog symlink
+              #     (required by dh_installchangelogs at the end of binary-generic)
+              #   - removes any stale build artifacts
               #
-              # Use "fakeroot make -f debian/rules" rather than
-              # "fakeroot debian/rules": fakeroot is a shell script that execs
-              # the command via /bin/sh (dash); dash resolves the shebang
-              # (#!/usr/bin/make -f) and reports "not found" if make is not yet
-              # on PATH at exec time. Invoking make explicitly bypasses the
-              # shebang lookup entirely.
-              echo "=== Generating debian/control and certificate files ==="
-              fakeroot make -f debian/rules debian/control
+              # Use "fakeroot make -f debian/rules" rather than "fakeroot debian/rules":
+              # fakeroot is a shell script that execs the command via /bin/sh (dash);
+              # dash resolves the shebang (#!/usr/bin/make -f) and reports "not found"
+              # if make is not yet on PATH at exec time. Invoking make explicitly
+              # bypasses the shebang lookup entirely.
+              echo "=== Setting up build environment (debian/rules clean) ==="
+              fakeroot make -f debian/rules clean
 
               echo "=== Starting: fakeroot debian/rules ${TARGET} (jobs=${JOBS}) ==="
               export DEB_BUILD_OPTIONS="parallel=${JOBS} nocheck"
