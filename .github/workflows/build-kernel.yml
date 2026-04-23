@@ -52,8 +52,8 @@ on:
         type: choice
         options:
           - ubuntu-24.04-arm
-          - bcollaku-self-hosted
-          - lecore-prd-u2404-arm64-xlrg-od-ephem
+          - self-hosted
+          - lecore-production
 
 permissions:
   contents: write   # upload assets to release tag
@@ -64,7 +64,11 @@ jobs:
   # --------------------------------------------------------------------------
   build:
     name: "Build ${{ inputs.suite }} ${{ inputs.flavor }} (${{ inputs.arch }})"
-    runs-on: ${{ inputs.runner || 'ubuntu-24.04-arm' }}
+    # Map friendly runner names to their actual runs-on labels.
+    # self-hosted        → "self-hosted"  (bcollaku dev machine)
+    # lecore-production  → ["self-hosted","lecore-prd-u2404-arm64-xlrg-od-ephem"]
+    # ubuntu-24.04-arm   → "ubuntu-24.04-arm" (GitHub-hosted, default)
+    runs-on: ${{ fromJSON('{"ubuntu-24.04-arm":"ubuntu-24.04-arm","self-hosted":"self-hosted","lecore-production":["self-hosted","lecore-prd-u2404-arm64-xlrg-od-ephem"]}')[inputs.runner || 'ubuntu-24.04-arm'] }}
     timeout-minutes: 360
 
     env:
