@@ -183,6 +183,22 @@ manually via `Actions → Build: Canonical Kernel .deb Packages → Run workflow
 | `kernel_version` | — | Version string for release asset attachment |
 | `arch` | `arm64` | Target architecture |
 | `flavor` | `generic` | Kernel flavour: `generic`, `lowlatency`, or `all` |
+| `runner` | `ubuntu-24.04-arm` | Runner to use — see table below |
+
+**Runner options**:
+
+| Option | Resolves to | Status |
+|--------|-------------|--------|
+| `ubuntu-24.04-arm` | GitHub-hosted 2-core arm64 | **default** — used by scheduled builds |
+| `self-hosted` | `runs-on: self-hosted` — any registered self-hosted runner | interim dev runner |
+| `lecore-production` | `runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]` | **target** — pending runner group access |
+
+The scheduled daily sync always dispatches with `runner=ubuntu-24.04-arm`. The `lecore-production` runner enables S3 artifact upload (permanent storage) in addition to the GitHub Actions artifact fallback.
+
+**Self-hosted runner requirements:**
+- Ubuntu 24.04 arm64
+- Docker installed; runner user must have access to `/var/run/docker.sock` (add user to `docker` group or `sudo chmod 666 /var/run/docker.sock`)
+- ≥ 25 GB free disk space
 
 **Build steps**:
 1. Free up disk space (~10 GB)
