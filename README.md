@@ -441,8 +441,8 @@ Tags use `<suite>-X.Y.Z-A.B`, e.g. `noble-6.8.0-114.114`.
 | Suite | Codename | Status | Kernel |
 |-------|----------|--------|--------|
 | `noble` | Noble Numbat | 24.04 LTS — **active** | 6.8 |
-| `questing` | Questing Quokka | 25.04 — **active** (daily default) | TBD |
-| `resolute` | Resolute Ringtail | 25.10 — **active** (known DTB build issue) | TBD |
+| `questing` | Questing Quokka | 25.04 — **active** (daily default) | 6.17 |
+| `resolute` | Resolute Ringtail | 25.10 — **active** (known DTB build issue) | 7.0 |
 
 To add a new suite, trigger `fetch-source-pkg.yml` with the desired
 `suite` input — the branch and release tag are created automatically:
