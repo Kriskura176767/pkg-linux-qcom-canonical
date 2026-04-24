@@ -21,9 +21,9 @@ SCHEDULE: daily 04:00 UTC  ·  RUNNER: ubuntu-24.04-arm
 ║  │  Job 1 · check-version                                               │ ║
 ║  │                                                                      │ ║
 ║  │  Query Launchpad API (ws.size=300, exact source_package_name match)  │ ║
-║  │  → latest version: noble 6.8.0-114.114                              │ ║
+║  │  → latest version: resolute X.Y.Z-A.B                               │ ║
 ║  │                                                                      │ ║
-║  │  git ls-remote (authenticated) → tag noble-6.8.0-114.114 exists?    │ ║
+║  │  git ls-remote (authenticated) → tag resolute-X.Y.Z-A.B exists?     │ ║
 ║  │                                                                      │ ║
 ║  │    YES ──▶  should_sync=false  ──▶  workflow exits cleanly          │ ║
 ║  │    NO  ──▶  should_sync=true   ──▶  continue ↓                      │ ║
@@ -34,10 +34,10 @@ SCHEDULE: daily 04:00 UTC  ·  RUNNER: ubuntu-24.04-arm
 ║  │  Job 2 · sync                                                        │ ║
 ║  │                                                                      │ ║
 ║  │  Free disk space (~10 GB)                                            │ ║
-║  │  git clone --depth=1 Launchpad git @ Ubuntu-6.8.0-114.114           │ ║
+║  │  git clone --depth=1 Launchpad git @ Ubuntu-X.Y.Z-A.B               │ ║
 ║  │  Verify >5000 files cloned                                           │ ║
-║  │  rsync source → noble branch (orphan)                               │ ║
-║  │  git commit + tag noble-6.8.0-114.114                               │ ║
+║  │  rsync source → resolute branch (orphan)                            │ ║
+║  │  git commit + tag resolute-X.Y.Z-A.B                                │ ║
 ║  │  git push branch + tag                                               │ ║
 ║  └──────────────────────────────────────────────────────────────────────┘ ║
 ║                            │ sync succeeded                                ║
@@ -46,7 +46,7 @@ SCHEDULE: daily 04:00 UTC  ·  RUNNER: ubuntu-24.04-arm
 ║  │  Job 3 · trigger-build                                               │ ║
 ║  │                                                                      │ ║
 ║  │  gh workflow run build-kernel.yml                                    │ ║
-║  │    suite=noble  kernel_version=6.8.0-114.114  arch=arm64            │ ║
+║  │    suite=resolute  kernel_version=X.Y.Z-A.B  arch=arm64             │ ║
 ║  └──────────────────────────────────────────────────────────────────────┘ ║
 ╚════════════════════════════════════════════════════════════════════════════╝
          │
@@ -54,12 +54,12 @@ SCHEDULE: daily 04:00 UTC  ·  RUNNER: ubuntu-24.04-arm
 ╔════════════════════════════════════════════════════════════════════════════╗
 ║  build-kernel.yml                                                          ║
 ║                                                                            ║
-║  Checkout noble branch  ──▶  kernel-src/                                  ║
+║  Checkout resolute branch  ──▶  kernel-src/                               ║
 ║  Checkout docker-pkg-build  ──▶  docker-pkg-build/                        ║
-║  docker_deb_build.py --rebuild -d noble                                    ║
+║  docker_deb_build.py --rebuild -d resolute                                 ║
 ║                                                                            ║
 ║  ┌──────────────────────────────────────────────────────────────────────┐ ║
-║  │  docker run --privileged ghcr.io/qualcomm-linux/pkg-builder:noble   │ ║
+║  │  docker run --privileged ghcr.io/qualcomm-linux/pkg-builder:resolute│ ║
 ║  │                                                                      │ ║
 ║  │  apt-get build-dep linux                                             │ ║
 ║  │  fakeroot make -f debian/rules clean            ← setup env         │ ║
@@ -74,8 +74,8 @@ SCHEDULE: daily 04:00 UTC  ·  RUNNER: ubuntu-24.04-arm
   ┌──────────────┐    ┌──────────────────┐    ┌──────────────────┐
   │  S3 Bucket   │    │ GitHub Artifact  │    │  GitHub Release  │
   │              │    │                  │    │                  │
-  │ qli-prd-     │    │ 90-day retention │    │ noble-6.8.0-     │
-  │ lecore-gh-   │    │ Actions → run    │    │ 114.114          │
+  │ qli-prd-     │    │ 90-day retention │    │ resolute-X.Y.Z-  │
+  │ lecore-gh-   │    │ Actions → run    │    │ A.B              │
   │ artifacts    │    │ → Artifacts      │    │ Releases →       │
   │              │    │                  │    │ Assets           │
   │ self-hosted  │    │ always           │    │ permanent        │
@@ -150,7 +150,7 @@ suite branch.
 
 | Input | Default | Description |
 |-------|---------|-------------|
-| `suite` | `noble` | Ubuntu suite to sync — one suite per run |
+| `suite` | `resolute` | Ubuntu suite to sync — one suite per run |
 | `force` | `false` | Re-sync even if tag already exists |
 
 **Jobs**:
@@ -161,7 +161,7 @@ suite branch.
 | `sync` | Frees disk space; `git clone --depth=1 --branch Ubuntu-<version>` from Launchpad git; verifies >5000 files; commits to suite branch; creates tag |
 | `trigger-build` | Dispatches `build-kernel.yml` with `suite`, `kernel_version`, `arch=arm64`, `flavor=generic` |
 
-**Idempotent**: if tag `noble-6.8.0-114.114` already exists, the workflow exits cleanly without downloading anything.
+**Idempotent**: if the tag for the latest version already exists, the workflow exits cleanly without downloading anything.
 
 ---
 
@@ -179,7 +179,7 @@ manually via `Actions → Build: Canonical Kernel .deb Packages → Run workflow
 
 | Input | Default | Description |
 |-------|---------|-------------|
-| `suite` | `noble` | Suite branch to build from |
+| `suite` | `resolute` | Suite branch to build from |
 | `kernel_version` | — | Version string for release asset attachment |
 | `arch` | `arm64` | Target architecture |
 | `flavor` | `generic` | Kernel flavour: `generic`, `lowlatency`, or `all` |
@@ -220,7 +220,7 @@ The scheduled daily sync always dispatches with `runner=ubuntu-24.04-arm`. The `
 |----------|---------------|-----------|-------|
 | **S3** | `s3://qli-prd-lecore-gh-artifacts/<org>/pkg/temp/<repo>/<run-id>/` | Permanent | Self-hosted runner only; skipped gracefully on GitHub-hosted |
 | **GitHub Actions artifact** | Actions → workflow run → *Artifacts* | 90 days | Always available |
-| **GitHub Release asset** | Releases → `noble-6.8.0-X.Y` → Assets | Permanent | Attached when `kernel_version` is provided |
+| **GitHub Release asset** | Releases → `<suite>-X.Y.Z-A.B` → Assets | Permanent | Attached when `kernel_version` is provided |
 
 ---
 
@@ -236,7 +236,7 @@ Go to **Actions** and enable workflows if prompted.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `KERNEL_SUITE` | `noble` | Default suite for scheduled runs |
+| `KERNEL_SUITE` | `resolute` | Default suite for scheduled runs |
 | `KERNEL_SOURCE` | `linux` | Source package name |
 
 ### 3. Run the first sync
@@ -378,7 +378,7 @@ Tags use `<suite>-X.Y.Z-A.B`, e.g. `noble-6.8.0-114.114`.
 |-------|----------|--------|--------|
 | `noble` | Noble Numbat | 24.04 LTS — **active** | 6.8 |
 | `questing` | Questing Quokka | 25.04 — **active** | TBD |
-| `resolute` | Resolute Ringtail | 25.10 — add when available | TBD |
+| `resolute` | Resolute Ringtail | 25.10 — **active** (daily default) | TBD |
 
 To add a new suite, trigger `fetch-source-pkg.yml` with the desired
 `suite` input — the branch and release tag are created automatically:
@@ -386,7 +386,7 @@ To add a new suite, trigger `fetch-source-pkg.yml` with the desired
 ```bash
 gh workflow run fetch-source-pkg.yml \
   --repo qualcomm-linux/pkg-linux-qcom-canonical \
-  --field suite=questing
+  --field suite=noble
 ```
 
 ---

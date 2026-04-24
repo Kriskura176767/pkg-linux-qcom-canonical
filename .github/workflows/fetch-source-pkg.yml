@@ -37,7 +37,7 @@ on:
       suite:
         description: "Ubuntu suite to sync (e.g. noble, questing, resolute)"
         required: false
-        default: "noble"
+        default: "resolute"
         type: string
       force:
         description: "Force sync even if this version is already committed"
@@ -69,7 +69,7 @@ jobs:
       - name: Query Launchpad for latest published source
         id: query
         env:
-          SUITE:  ${{ inputs.suite || vars.KERNEL_SUITE || 'noble' }}
+          SUITE:  ${{ inputs.suite || vars.KERNEL_SUITE || 'resolute' }}
           SOURCE: ${{ vars.KERNEL_SOURCE || 'linux' }}
         run: |
           API="https://api.launchpad.net/1.0/ubuntu/+archive/primary"

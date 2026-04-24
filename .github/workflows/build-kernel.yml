@@ -22,7 +22,7 @@ on:
       suite:
         description: "Suite branch to build from (e.g. noble, questing, resolute)"
         required: true
-        default: "noble"
+        default: "resolute"
         type: string
       kernel_version:
         description: "Kernel version string (e.g. 6.8.0-51.52) – used for release asset attachment"
@@ -72,7 +72,7 @@ jobs:
     timeout-minutes: 360
 
     env:
-      SUITE:   ${{ inputs.suite   || 'noble' }}
+      SUITE:   ${{ inputs.suite   || 'resolute' }}
       ARCH:    ${{ inputs.arch    || 'arm64' }}
       FLAVOR:  ${{ inputs.flavor  || 'generic' }}
 
@@ -102,10 +102,10 @@ jobs:
       # -----------------------------------------------------------------------
       # 2. Checkout the suite branch (contains the full kernel source tree)
       # -----------------------------------------------------------------------
-      - name: Checkout suite branch (${{ inputs.suite || 'noble' }})
+      - name: Checkout suite branch (${{ inputs.suite || 'resolute' }})
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.suite || 'noble' }}
+          ref: ${{ inputs.suite || 'resolute' }}
           path: kernel-src
 
       # -----------------------------------------------------------------------
@@ -158,7 +158,7 @@ jobs:
       # -----------------------------------------------------------------------
       # 6. Build the suite-matched pkg-builder docker image
       # -----------------------------------------------------------------------
-      - name: Build docker image for suite (${{ inputs.suite || 'noble' }})
+      - name: Build docker image for suite (${{ inputs.suite || 'resolute' }})
         run: |
           ./docker-pkg-build/docker_deb_build.py --rebuild -d "${SUITE}"
           docker image ls
@@ -167,7 +167,7 @@ jobs:
       # 7. Build kernel packages inside the suite-matched container
       #    The workspace is bind-mounted so output .deb files land on the host.
       # -----------------------------------------------------------------------
-      - name: Build kernel packages (ghcr.io/qualcomm-linux/pkg-builder:${{ inputs.suite || 'noble' }})
+      - name: Build kernel packages (ghcr.io/qualcomm-linux/pkg-builder:${{ inputs.suite || 'resolute' }})
         run: |
           JOBS=$(nproc)
           if [ "${FLAVOR}" = "all" ]; then TARGET="binary"; else TARGET="binary-${FLAVOR}"; fi
