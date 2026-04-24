@@ -21,9 +21,9 @@ SCHEDULE: daily 04:00 UTC  ·  RUNNER: ubuntu-24.04-arm
 ║  │  Job 1 · check-version                                               │ ║
 ║  │                                                                      │ ║
 ║  │  Query Launchpad API (ws.size=300, exact source_package_name match)  │ ║
-║  │  → latest version: resolute X.Y.Z-A.B                               │ ║
+║  │  → latest version: questing X.Y.Z-A.B                               │ ║
 ║  │                                                                      │ ║
-║  │  git ls-remote (authenticated) → tag resolute-X.Y.Z-A.B exists?     │ ║
+║  │  git ls-remote (authenticated) → tag questing-X.Y.Z-A.B exists?     │ ║
 ║  │                                                                      │ ║
 ║  │    YES ──▶  should_sync=false  ──▶  workflow exits cleanly          │ ║
 ║  │    NO  ──▶  should_sync=true   ──▶  continue ↓                      │ ║
@@ -36,8 +36,8 @@ SCHEDULE: daily 04:00 UTC  ·  RUNNER: ubuntu-24.04-arm
 ║  │  Free disk space (~10 GB)                                            │ ║
 ║  │  git clone --depth=1 Launchpad git @ Ubuntu-X.Y.Z-A.B               │ ║
 ║  │  Verify >5000 files cloned                                           │ ║
-║  │  rsync source → resolute branch (orphan)                            │ ║
-║  │  git commit + tag resolute-X.Y.Z-A.B                                │ ║
+║  │  rsync source → questing branch (orphan)                            │ ║
+║  │  git commit + tag questing-X.Y.Z-A.B                                │ ║
 ║  │  git push branch + tag                                               │ ║
 ║  └──────────────────────────────────────────────────────────────────────┘ ║
 ║                            │ sync succeeded                                ║
@@ -46,7 +46,7 @@ SCHEDULE: daily 04:00 UTC  ·  RUNNER: ubuntu-24.04-arm
 ║  │  Job 3 · trigger-build                                               │ ║
 ║  │                                                                      │ ║
 ║  │  gh workflow run build-kernel.yml                                    │ ║
-║  │    suite=resolute  kernel_version=X.Y.Z-A.B  arch=arm64             │ ║
+║  │    suite=questing  kernel_version=X.Y.Z-A.B  arch=arm64             │ ║
 ║  └──────────────────────────────────────────────────────────────────────┘ ║
 ╚════════════════════════════════════════════════════════════════════════════╝
          │
@@ -54,12 +54,12 @@ SCHEDULE: daily 04:00 UTC  ·  RUNNER: ubuntu-24.04-arm
 ╔════════════════════════════════════════════════════════════════════════════╗
 ║  build-kernel.yml                                                          ║
 ║                                                                            ║
-║  Checkout resolute branch  ──▶  kernel-src/                               ║
+║  Checkout questing branch  ──▶  kernel-src/                               ║
 ║  Checkout docker-pkg-build  ──▶  docker-pkg-build/                        ║
-║  docker_deb_build.py --rebuild -d resolute                                 ║
+║  docker_deb_build.py --rebuild -d questing                                 ║
 ║                                                                            ║
 ║  ┌──────────────────────────────────────────────────────────────────────┐ ║
-║  │  docker run --privileged ghcr.io/qualcomm-linux/pkg-builder:resolute│ ║
+║  │  docker run --privileged ghcr.io/qualcomm-linux/pkg-builder:questing│ ║
 ║  │                                                                      │ ║
 ║  │  apt-get build-dep linux                                             │ ║
 ║  │  fakeroot make -f debian/rules clean            ← setup env         │ ║
@@ -74,7 +74,7 @@ SCHEDULE: daily 04:00 UTC  ·  RUNNER: ubuntu-24.04-arm
   ┌──────────────┐    ┌──────────────────┐    ┌──────────────────┐
   │  S3 Bucket   │    │ GitHub Artifact  │    │  GitHub Release  │
   │              │    │                  │    │                  │
-  │ qli-prd-     │    │ 90-day retention │    │ resolute-X.Y.Z-  │
+  │ qli-prd-     │    │ 90-day retention │    │ questing-X.Y.Z-  │
   │ lecore-gh-   │    │ Actions → run    │    │ A.B              │
   │ artifacts    │    │ → Artifacts      │    │ Releases →       │
   │              │    │                  │    │ Assets           │
@@ -99,10 +99,10 @@ MANUAL: Actions → Build: Canonical Kernel .deb Packages → Run workflow
   ┌─────────────────────────────────────────────────────────────────────────┐
   │  Mode A — Test / dev build  (kernel_version left empty)                 │
   │                                                                         │
-  │  suite=resolute  kernel_version=<empty>                                 │
+  │  suite=questing  kernel_version=<empty>                                 │
   │         │                                                               │
   │         ▼                                                               │
-  │  Checkout resolute branch HEAD                                          │
+  │  Checkout questing branch HEAD                                          │
   │  (includes any commits you pushed on top of the synced source)          │
   │         │                                                               │
   │         ▼                                                               │
@@ -115,37 +115,37 @@ MANUAL: Actions → Build: Canonical Kernel .deb Packages → Run workflow
   ┌─────────────────────────────────────────────────────────────────────────┐
   │  Mode B — Release build for latest synced version                       │
   │                                                                         │
-  │  suite=resolute  kernel_version=7.0.0-15.15                             │
+  │  suite=questing  kernel_version=6.14.0-15.15                            │
   │         │                                                               │
   │         ▼                                                               │
-  │  Validate tag resolute-7.0.0-15.15 exists  (fail fast if not)          │
+  │  Validate tag questing-6.14.0-15.15 exists  (fail fast if not)         │
   │         │                                                               │
   │         ▼                                                               │
-  │  Checkout tag resolute-7.0.0-15.15  ← exact synced source              │
+  │  Checkout tag questing-6.14.0-15.15  ← exact synced source             │
   │         │                                                               │
   │         ▼                                                               │
   │  Build .deb packages                                                    │
   │         │                                                               │
   │         ▼                                                               │
-  │  GitHub Actions artifact (90-day) + GitHub Release resolute-7.0.0-15.15│
+  │  GitHub Actions artifact (90-day) + GitHub Release questing-6.14.0-15.15│
   └─────────────────────────────────────────────────────────────────────────┘
 
   ┌─────────────────────────────────────────────────────────────────────────┐
   │  Mode C — Rebuild / re-release an older synced version                  │
   │                                                                         │
-  │  suite=resolute  kernel_version=7.0.0-14.14                             │
+  │  suite=questing  kernel_version=6.14.0-14.14                            │
   │         │                                                               │
   │         ▼                                                               │
-  │  Validate tag resolute-7.0.0-14.14 exists  (fail fast if not)          │
+  │  Validate tag questing-6.14.0-14.14 exists  (fail fast if not)         │
   │         │                                                               │
   │         ▼                                                               │
-  │  Checkout tag resolute-7.0.0-14.14  ← older synced source (not HEAD)   │
+  │  Checkout tag questing-6.14.0-14.14  ← older synced source (not HEAD)  │
   │         │                                                               │
   │         ▼                                                               │
   │  Build .deb packages                                                    │
   │         │                                                               │
   │         ▼                                                               │
-  │  GitHub Actions artifact (90-day) + GitHub Release resolute-7.0.0-14.14│
+  │  GitHub Actions artifact (90-day) + GitHub Release questing-6.14.0-14.14│
   │  (existing release assets are overwritten with --clobber)               │
   └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -214,7 +214,7 @@ suite branch.
 
 | Input | Default | Description |
 |-------|---------|-------------|
-| `suite` | `resolute` | Ubuntu suite to sync — one suite per run |
+| `suite` | `questing` | Ubuntu suite to sync — one suite per run |
 | `force` | `false` | Re-sync even if tag already exists |
 
 **Jobs**:
@@ -243,7 +243,7 @@ manually via `Actions → Build: Canonical Kernel .deb Packages → Run workflow
 
 | Input | Default | Description |
 |-------|---------|-------------|
-| `suite` | `resolute` | Suite branch to build from |
+| `suite` | `questing` | Suite branch to build from |
 | `kernel_version` | — | Version string for release asset attachment |
 | `arch` | `arm64` | Target architecture |
 | `flavor` | `generic` | Kernel flavour: `generic`, `lowlatency`, or `all` |
@@ -300,7 +300,7 @@ Go to **Actions** and enable workflows if prompted.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `KERNEL_SUITE` | `resolute` | Default suite for scheduled runs |
+| `KERNEL_SUITE` | `questing` | Default suite for scheduled runs |
 | `KERNEL_SOURCE` | `linux` | Source package name |
 
 ### 3. Run the first sync
@@ -441,8 +441,8 @@ Tags use `<suite>-X.Y.Z-A.B`, e.g. `noble-6.8.0-114.114`.
 | Suite | Codename | Status | Kernel |
 |-------|----------|--------|--------|
 | `noble` | Noble Numbat | 24.04 LTS — **active** | 6.8 |
-| `questing` | Questing Quokka | 25.04 — **active** | TBD |
-| `resolute` | Resolute Ringtail | 25.10 — **active** (daily default) | TBD |
+| `questing` | Questing Quokka | 25.04 — **active** (daily default) | TBD |
+| `resolute` | Resolute Ringtail | 25.10 — **active** (known DTB build issue) | TBD |
 
 To add a new suite, trigger `fetch-source-pkg.yml` with the desired
 `suite` input — the branch and release tag are created automatically:
@@ -450,8 +450,13 @@ To add a new suite, trigger `fetch-source-pkg.yml` with the desired
 ```bash
 gh workflow run fetch-source-pkg.yml \
   --repo qualcomm-linux/pkg-linux-qcom-canonical \
-  --field suite=noble
+  --field suite=resolute
 ```
+
+> **Note on resolute builds:** The resolute (25.10) kernel 7.0.0 fails during
+> `dtbs_install` with a parallel build race condition
+> (`install: cannot create directory .../device-tree/apm`).
+> Use `suite=questing` or `suite=noble` for reliable builds until this is resolved.
 
 ---
 

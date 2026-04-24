@@ -22,7 +22,7 @@ on:
       suite:
         description: "Suite branch to build from (e.g. noble, questing, resolute)"
         required: true
-        default: "resolute"
+        default: "questing"
         type: string
       kernel_version:
         description: "Kernel version string (e.g. 6.8.0-51.52) – used for release asset attachment"
@@ -72,7 +72,7 @@ jobs:
     timeout-minutes: 360
 
     env:
-      SUITE:   ${{ inputs.suite   || 'resolute' }}
+      SUITE:   ${{ inputs.suite   || 'questing' }}
       ARCH:    ${{ inputs.arch    || 'arm64' }}
       FLAVOR:  ${{ inputs.flavor  || 'generic' }}
 
@@ -149,7 +149,7 @@ jobs:
       - name: Checkout kernel source
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.kernel_version != '' && format('{0}-{1}', inputs.suite || 'resolute', inputs.kernel_version) || inputs.suite || 'resolute' }}
+          ref: ${{ inputs.kernel_version != '' && format('{0}-{1}', inputs.suite || 'questing', inputs.kernel_version) || inputs.suite || 'questing' }}
           path: kernel-src
 
       # -----------------------------------------------------------------------
@@ -165,7 +165,7 @@ jobs:
       # -----------------------------------------------------------------------
       # 6. Build the suite-matched pkg-builder docker image
       # -----------------------------------------------------------------------
-      - name: Build docker image for suite (${{ inputs.suite || 'resolute' }})
+      - name: Build docker image for suite (${{ inputs.suite || 'questing' }})
         run: |
           ./docker-pkg-build/docker_deb_build.py --rebuild -d "${SUITE}"
           docker image ls
@@ -174,7 +174,7 @@ jobs:
       # 7. Build kernel packages inside the suite-matched container
       #    The workspace is bind-mounted so output .deb files land on the host.
       # -----------------------------------------------------------------------
-      - name: Build kernel packages (ghcr.io/qualcomm-linux/pkg-builder:${{ inputs.suite || 'resolute' }})
+      - name: Build kernel packages (ghcr.io/qualcomm-linux/pkg-builder:${{ inputs.suite || 'questing' }})
         run: |
           JOBS=$(nproc)
           if [ "${FLAVOR}" = "all" ]; then TARGET="binary"; else TARGET="binary-${FLAVOR}"; fi
