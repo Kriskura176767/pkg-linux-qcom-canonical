@@ -442,7 +442,7 @@ Tags use `<suite>-X.Y.Z-A.B`, e.g. `noble-6.8.0-114.114`.
 |-------|----------|--------|--------|
 | `noble` | Noble Numbat | 24.04 LTS — **active** | 6.8 |
 | `questing` | Questing Quokka | 25.10 — **active** (daily default) | 6.17 |
-| `resolute` | Resolute Ringtail | 26.04 LTS — **active** (known DTB build issue) | 7.0 |
+| `resolute` | Resolute Ringtail | 26.04 LTS — **active** (intermittent `dtbs_install` failure observed) | 7.0 |
 
 To add a new suite, trigger `fetch-source-pkg.yml` with the desired
 `suite` input — the branch and release tag are created automatically:
@@ -453,10 +453,19 @@ gh workflow run fetch-source-pkg.yml \
   --field suite=resolute
 ```
 
-> **Note on resolute builds:** The resolute (26.04 LTS) kernel 7.0.0 fails during
-> `dtbs_install` with a parallel build race condition
-> (`install: cannot create directory .../device-tree/apm`).
-> Use `suite=questing` or `suite=noble` for reliable builds until this is resolved.
+> **Note on resolute builds:** Intermittent build failures have been observed on
+> resolute (26.04 LTS) during `dtbs_install`:
+> ```
+> install: cannot create directory .../device-tree/apm
+> ```
+> This error is consistent with a parallel job race condition in the kernel's
+> `dtbs_install` target (`scripts/Makefile.dtbinst`) — multiple parallel jobs
+> racing to create the same vendor subdirectory. The failure is non-deterministic:
+> some runs succeed, others fail. It is not exclusive to resolute; it is more
+> likely to surface on kernels with a large number of DTB files (such as 7.0)
+> because more parallel `install -d` calls increase the probability of a collision.
+> If you hit this failure, re-running the build often succeeds. For consistently
+> reliable builds, use `suite=questing` or `suite=noble` until this is resolved.
 
 ---
 
