@@ -117,7 +117,36 @@ jobs:
           echo "REPO_NAME=${GITHUB_REPOSITORY#*/}"  >> "$GITHUB_ENV"
 
       # -----------------------------------------------------------------------
-      # 4. Checkout docker-pkg-build
+      # 4. Validate kernel_version against existing tags (fail fast)
+      #    If kernel_version is provided, verify that the corresponding tag
+      #    <suite>-<kernel_version> already exists in the repository before
+      #    starting the build. This prevents a mislabeled release caused by
+      #    a user entering a version that was never synced.
+      # -----------------------------------------------------------------------
+      - name: Validate kernel_version tag exists
+        if: inputs.kernel_version != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${SUITE}-${{ inputs.kernel_version }}"
+          echo "Verifying tag '${TAG}' exists in repository..."
+
+          if git ls-remote --exit-code --tags \
+               "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" \
+               "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "✓ Tag '${TAG}' exists — proceeding with build"
+          else
+            echo "ERROR: Tag '${TAG}' does not exist in this repository." >&2
+            echo "" >&2
+            echo "The kernel_version input must match a version that has been" >&2
+            echo "synced to the ${SUITE} branch by fetch-source-pkg.yml." >&2
+            echo "" >&2
+            echo "Existing tags: https://github.com/${{ github.repository }}/tags" >&2
+            exit 1
+          fi
+
+      # -----------------------------------------------------------------------
+      # 5. Checkout docker-pkg-build
       # -----------------------------------------------------------------------
       - name: Checkout docker-pkg-build
         uses: actions/checkout@v6
@@ -127,7 +156,7 @@ jobs:
           path: docker-pkg-build
 
       # -----------------------------------------------------------------------
-      # 5. Build the suite-matched pkg-builder docker image
+      # 6. Build the suite-matched pkg-builder docker image
       # -----------------------------------------------------------------------
       - name: Build docker image for suite (${{ inputs.suite || 'noble' }})
         run: |
@@ -135,7 +164,7 @@ jobs:
           docker image ls
 
       # -----------------------------------------------------------------------
-      # 6. Build kernel packages inside the suite-matched container
+      # 7. Build kernel packages inside the suite-matched container
       #    The workspace is bind-mounted so output .deb files land on the host.
       # -----------------------------------------------------------------------
       - name: Build kernel packages (ghcr.io/qualcomm-linux/pkg-builder:${{ inputs.suite || 'noble' }})
@@ -219,7 +248,7 @@ jobs:
             '
 
       # -----------------------------------------------------------------------
-      # 7. Collect output packages
+      # 8. Collect output packages
       #    The Ubuntu kernel build drops .deb files one level above the
       #    source tree (i.e. in GITHUB_WORKSPACE, not inside kernel-src/).
       # -----------------------------------------------------------------------
@@ -235,7 +264,7 @@ jobs:
           ls -lh output/ || echo "(no files found)"
 
       # -----------------------------------------------------------------------
-      # 8. Upload to S3 (self-hosted runner only)
+      # 9. Upload to S3 (self-hosted runner only)
       #    Skipped on GitHub-hosted runners — S3 credentials and network
       #    access are only available on lecore-prd-u2404-arm64-xlrg-od-ephem.
       # -----------------------------------------------------------------------
@@ -248,7 +277,7 @@ jobs:
           destination: ${{ env.ORG_NAME }}/pkg/temp/${{ env.REPO_NAME }}/${{ github.run_id }}-${{ github.run_attempt }}/
 
       # -----------------------------------------------------------------------
-      # 9. Upload as GitHub Actions artifact (90-day fallback)
+      # 10. Upload as GitHub Actions artifact (90-day fallback)
       # -----------------------------------------------------------------------
       - name: Upload packages as artifact
         uses: actions/upload-artifact@v7
@@ -259,7 +288,7 @@ jobs:
           if-no-files-found: warn
 
       # -----------------------------------------------------------------------
-      # 10. Create GitHub Release and attach built packages
+      # 11. Create GitHub Release and attach built packages
       # -----------------------------------------------------------------------
       - name: Create GitHub Release and attach packages
         if: inputs.kernel_version != ''
@@ -299,7 +328,7 @@ jobs:
           echo "Release URL: https://github.com/${{ github.repository }}/releases/tag/${TAG}"
 
       # -----------------------------------------------------------------------
-      # 11. Summary
+      # 12. Summary
       # -----------------------------------------------------------------------
       - name: Print summary
         if: always()
