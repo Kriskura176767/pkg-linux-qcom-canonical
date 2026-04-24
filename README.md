@@ -441,8 +441,8 @@ Tags use `<suite>-X.Y.Z-A.B`, e.g. `noble-6.8.0-114.114`.
 | Suite | Codename | Status | Kernel |
 |-------|----------|--------|--------|
 | `noble` | Noble Numbat | 24.04 LTS — **active** | 6.8 |
-| `questing` | Questing Quokka | 25.04 — **active** (daily default) | 6.17 |
-| `resolute` | Resolute Ringtail | 25.10 — **active** (known DTB build issue) | 7.0 |
+| `questing` | Questing Quokka | 25.10 — **active** (daily default) | 6.17 |
+| `resolute` | Resolute Ringtail | 26.04 LTS — **active** (known DTB build issue) | 7.0 |
 
 To add a new suite, trigger `fetch-source-pkg.yml` with the desired
 `suite` input — the branch and release tag are created automatically:
@@ -453,7 +453,7 @@ gh workflow run fetch-source-pkg.yml \
   --field suite=resolute
 ```
 
-> **Note on resolute builds:** The resolute (25.10) kernel 7.0.0 fails during
+> **Note on resolute builds:** The resolute (26.04 LTS) kernel 7.0.0 fails during
 > `dtbs_install` with a parallel build race condition
 > (`install: cannot create directory .../device-tree/apm`).
 > Use `suite=questing` or `suite=noble` for reliable builds until this is resolved.
