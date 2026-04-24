@@ -88,6 +88,70 @@ Target runner: `lecore-prd-u2404-arm64-xlrg-od-ephem` (self-hosted) — pending 
 
 ---
 
+## Manual build trigger flows
+
+```
+MANUAL: Actions → Build: Canonical Kernel .deb Packages → Run workflow
+══════════════════════════════════════════════════════════════════════════════
+
+  Three modes depending on kernel_version input:
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  Mode A — Test / dev build  (kernel_version left empty)                 │
+  │                                                                         │
+  │  suite=resolute  kernel_version=<empty>                                 │
+  │         │                                                               │
+  │         ▼                                                               │
+  │  Checkout resolute branch HEAD                                          │
+  │  (includes any commits you pushed on top of the synced source)          │
+  │         │                                                               │
+  │         ▼                                                               │
+  │  Build .deb packages                                                    │
+  │         │                                                               │
+  │         ▼                                                               │
+  │  GitHub Actions artifact only (90-day)  ←  no release created          │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  Mode B — Release build for latest synced version                       │
+  │                                                                         │
+  │  suite=resolute  kernel_version=7.0.0-15.15                             │
+  │         │                                                               │
+  │         ▼                                                               │
+  │  Validate tag resolute-7.0.0-15.15 exists  (fail fast if not)          │
+  │         │                                                               │
+  │         ▼                                                               │
+  │  Checkout tag resolute-7.0.0-15.15  ← exact synced source              │
+  │         │                                                               │
+  │         ▼                                                               │
+  │  Build .deb packages                                                    │
+  │         │                                                               │
+  │         ▼                                                               │
+  │  GitHub Actions artifact (90-day) + GitHub Release resolute-7.0.0-15.15│
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  Mode C — Rebuild / re-release an older synced version                  │
+  │                                                                         │
+  │  suite=resolute  kernel_version=7.0.0-14.14                             │
+  │         │                                                               │
+  │         ▼                                                               │
+  │  Validate tag resolute-7.0.0-14.14 exists  (fail fast if not)          │
+  │         │                                                               │
+  │         ▼                                                               │
+  │  Checkout tag resolute-7.0.0-14.14  ← older synced source (not HEAD)   │
+  │         │                                                               │
+  │         ▼                                                               │
+  │  Build .deb packages                                                    │
+  │         │                                                               │
+  │         ▼                                                               │
+  │  GitHub Actions artifact (90-day) + GitHub Release resolute-7.0.0-14.14│
+  │  (existing release assets are overwritten with --clobber)               │
+  └─────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## Repository branch layout
 
 ```
