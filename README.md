@@ -115,37 +115,37 @@ MANUAL: Actions → Build: Canonical Kernel .deb Packages → Run workflow
   ┌─────────────────────────────────────────────────────────────────────────┐
   │  Mode B — Release build for latest synced version                       │
   │                                                                         │
-  │  suite=questing  kernel_version=6.14.0-15.15                            │
+  │  suite=questing  kernel_version=6.17.0-24.24                            │
   │         │                                                               │
   │         ▼                                                               │
-  │  Validate tag questing-6.14.0-15.15 exists  (fail fast if not)         │
+  │  Validate tag questing-6.17.0-24.24 exists  (fail fast if not)         │
   │         │                                                               │
   │         ▼                                                               │
-  │  Checkout tag questing-6.14.0-15.15  ← exact synced source             │
+  │  Checkout tag questing-6.17.0-24.24  ← exact synced source             │
   │         │                                                               │
   │         ▼                                                               │
   │  Build .deb packages                                                    │
   │         │                                                               │
   │         ▼                                                               │
-  │  GitHub Actions artifact (90-day) + GitHub Release questing-6.14.0-15.15│
+  │  GitHub Actions artifact (90-day) + GitHub Release questing-6.17.0-24.24│
   └─────────────────────────────────────────────────────────────────────────┘
 
   ┌─────────────────────────────────────────────────────────────────────────┐
   │  Mode C — Rebuild / re-release an older synced version                  │
   │                                                                         │
-  │  suite=questing  kernel_version=6.14.0-14.14                            │
+  │  suite=questing  kernel_version=6.17.0-23.23                            │
   │         │                                                               │
   │         ▼                                                               │
-  │  Validate tag questing-6.14.0-14.14 exists  (fail fast if not)         │
+  │  Validate tag questing-6.17.0-23.23 exists  (fail fast if not)         │
   │         │                                                               │
   │         ▼                                                               │
-  │  Checkout tag questing-6.14.0-14.14  ← older synced source (not HEAD)  │
+  │  Checkout tag questing-6.17.0-23.23  ← older synced source (not HEAD)  │
   │         │                                                               │
   │         ▼                                                               │
   │  Build .deb packages                                                    │
   │         │                                                               │
   │         ▼                                                               │
-  │  GitHub Actions artifact (90-day) + GitHub Release questing-6.14.0-14.14│
+  │  GitHub Actions artifact (90-day) + GitHub Release questing-6.17.0-23.23│
   │  (existing release assets are overwritten with --clobber)               │
   └─────────────────────────────────────────────────────────────────────────┘
 ```
