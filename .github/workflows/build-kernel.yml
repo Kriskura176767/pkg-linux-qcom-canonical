@@ -100,21 +100,7 @@ jobs:
           df -h /
 
       # -----------------------------------------------------------------------
-      # 2. Checkout the kernel source
-      #    - If kernel_version is provided: checkout the exact tag
-      #      <suite>-<kernel_version> so the build uses the precise synced
-      #      source regardless of what else is on the branch tip.
-      #    - If kernel_version is empty: checkout the suite branch HEAD
-      #      (test/dev builds — no release will be created).
-      # -----------------------------------------------------------------------
-      - name: Checkout kernel source
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ inputs.kernel_version != '' && format('{0}-{1}', inputs.suite || 'resolute', inputs.kernel_version) || inputs.suite || 'resolute' }}
-          path: kernel-src
-
-      # -----------------------------------------------------------------------
-      # 3. Extract org/repo for S3 upload path
+      # 2. Extract org/repo for S3 upload path
       # -----------------------------------------------------------------------
       - name: Extract org and repo name
         run: |
@@ -122,11 +108,9 @@ jobs:
           echo "REPO_NAME=${GITHUB_REPOSITORY#*/}"  >> "$GITHUB_ENV"
 
       # -----------------------------------------------------------------------
-      # 4. Validate kernel_version against existing tags (fail fast)
-      #    If kernel_version is provided, verify that the corresponding tag
-      #    <suite>-<kernel_version> already exists in the repository before
-      #    starting the build. This prevents a mislabeled release caused by
-      #    a user entering a version that was never synced.
+      # 3. Validate kernel_version against existing tags (fail fast)
+      #    Must run BEFORE checkout so a bad version fails immediately with a
+      #    clear error rather than a cryptic git "ref not found" from checkout.
       # -----------------------------------------------------------------------
       - name: Validate kernel_version tag exists
         if: inputs.kernel_version != ''
@@ -149,6 +133,24 @@ jobs:
             echo "Existing tags: https://github.com/${{ github.repository }}/tags" >&2
             exit 1
           fi
+
+      # -----------------------------------------------------------------------
+      # 4. Checkout the kernel source
+      #    - If kernel_version is provided: checkout the exact tag
+      #      <suite>-<kernel_version> so the build uses the precise synced
+      #      source regardless of what else is on the branch tip.
+      #    - If kernel_version is empty: checkout the suite branch HEAD
+      #      (test/dev builds — no release will be created).
+      #    Note: actions/checkout checks out a ref of THIS repository
+      #    (pkg-linux-qcom-canonical). The resolute/noble/questing branches
+      #    of this repo contain the full kernel source tree populated by
+      #    fetch-source-pkg.yml — they are not the main branch.
+      # -----------------------------------------------------------------------
+      - name: Checkout kernel source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.kernel_version != '' && format('{0}-{1}', inputs.suite || 'resolute', inputs.kernel_version) || inputs.suite || 'resolute' }}
+          path: kernel-src
 
       # -----------------------------------------------------------------------
       # 5. Checkout docker-pkg-build
