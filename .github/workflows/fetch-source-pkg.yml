@@ -23,7 +23,7 @@
 # (e.g.  noble-6.8.0-114.114).
 #
 # Repository variables (Settings → Variables → Actions):
-#   KERNEL_SUITE   – default suite to sync when not specified (default: noble)
+#   KERNEL_SUITE   – default suite to sync when not specified (default: questing)
 #   KERNEL_SOURCE  – source package name (default: linux)
 
 name: "Sync: Canonical Kernel Sources to Branch"
@@ -43,6 +43,14 @@ on:
         description: "Force sync even if this version is already committed"
         type: boolean
         default: false
+      custom_git_url:
+        description: >
+          Custom Launchpad git URL to clone from instead of the official
+          Ubuntu kernel repo. Leave empty to use the default.
+          Example: https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: write
@@ -60,36 +68,73 @@ jobs:
       tag:              ${{ steps.query.outputs.tag }}
       suite:            ${{ steps.query.outputs.suite }}
       source:           ${{ steps.query.outputs.source }}
+      git_url:          ${{ steps.query.outputs.git_url }}
       should_sync:      ${{ steps.gate.outputs.should_sync }}
 
     steps:
       - name: Install dependencies
         run: sudo apt-get install -y --no-install-recommends jq
 
-      - name: Query Launchpad for latest published source
+      - name: Resolve version and git URL
         id: query
         env:
-          SUITE:  ${{ inputs.suite || vars.KERNEL_SUITE || 'questing' }}
-          SOURCE: ${{ vars.KERNEL_SOURCE || 'linux' }}
+          SUITE:          ${{ inputs.suite || vars.KERNEL_SUITE || 'questing' }}
+          SOURCE:         ${{ vars.KERNEL_SOURCE || 'linux' }}
+          CUSTOM_GIT_URL: ${{ inputs.custom_git_url || '' }}
         run: |
-          API="https://api.launchpad.net/1.0/ubuntu/+archive/primary"
-          API+="?ws.op=getPublishedSources"
-          API+="&source_name=${SOURCE}"
-          API+="&distro_series=/ubuntu/${SUITE}"
-          API+="&status=Published"
-          API+="&order_by_date=true"
-          API+="&ws.size=300"
+          if [ -n "${CUSTOM_GIT_URL}" ]; then
+            # ----------------------------------------------------------------
+            # Custom repo path: find the latest Ubuntu-* tag via git ls-remote.
+            # This bypasses the Launchpad REST API entirely — the version is
+            # derived directly from the tags present in the custom repository.
+            # ----------------------------------------------------------------
+            echo "Custom git URL provided: ${CUSTOM_GIT_URL}"
+            echo "Querying tags from custom repo..."
 
-          echo "Querying: ${API}"
-          RESP=$(curl -fsSL "${API}")
+            LATEST_TAG=$(git ls-remote --tags "${CUSTOM_GIT_URL}" 'refs/tags/Ubuntu-*' \
+              | grep -v '\^{}' \
+              | awk '{print $2}' \
+              | sed 's|refs/tags/||' \
+              | sort -V \
+              | tail -1)
 
-          VERSION=$(echo "$RESP" | jq -r \
-            --arg name "${SOURCE}" \
-            '[.entries[] | select(.source_package_name == $name)] | .[0].source_package_version // empty')
-          [ -n "${VERSION}" ] || {
-            echo "ERROR: No exact match for '${SOURCE}' in ${SUITE}" >&2
-            exit 1
-          }
+            [ -n "${LATEST_TAG}" ] || {
+              echo "ERROR: No Ubuntu-* tags found in ${CUSTOM_GIT_URL}" >&2
+              exit 1
+            }
+
+            # Ubuntu-7.0.0-1.1 → 7.0.0-1.1
+            VERSION="${LATEST_TAG#Ubuntu-}"
+            GIT_URL="${CUSTOM_GIT_URL}"
+
+            echo "Latest tag : ${LATEST_TAG}"
+          else
+            # ----------------------------------------------------------------
+            # Default path: query the Launchpad REST API for the latest
+            # officially published source package version, then construct
+            # the standard Launchpad git URL for the suite.
+            # ----------------------------------------------------------------
+            API="https://api.launchpad.net/1.0/ubuntu/+archive/primary"
+            API+="?ws.op=getPublishedSources"
+            API+="&source_name=${SOURCE}"
+            API+="&distro_series=/ubuntu/${SUITE}"
+            API+="&status=Published"
+            API+="&order_by_date=true"
+            API+="&ws.size=300"
+
+            echo "Querying: ${API}"
+            RESP=$(curl -fsSL "${API}")
+
+            VERSION=$(echo "$RESP" | jq -r \
+              --arg name "${SOURCE}" \
+              '[.entries[] | select(.source_package_name == $name)] | .[0].source_package_version // empty')
+            [ -n "${VERSION}" ] || {
+              echo "ERROR: No exact match for '${SOURCE}' in ${SUITE}" >&2
+              exit 1
+            }
+
+            GIT_URL="https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/${SUITE}"
+          fi
 
           UPSTREAM=$(echo "${VERSION}" | cut -d'-' -f1)
           TAG="${SUITE}-${VERSION}"
@@ -99,10 +144,12 @@ jobs:
           echo "tag=${TAG}"                   >> "$GITHUB_OUTPUT"
           echo "suite=${SUITE}"               >> "$GITHUB_OUTPUT"
           echo "source=${SOURCE}"             >> "$GITHUB_OUTPUT"
+          echo "git_url=${GIT_URL}"           >> "$GITHUB_OUTPUT"
 
           echo "Suite   : ${SUITE}"
           echo "Version : ${VERSION}"
           echo "Tag     : ${TAG}"
+          echo "Git URL : ${GIT_URL}"
 
       - name: Check whether tag already exists
         id: gate
@@ -138,6 +185,7 @@ jobs:
       TAG:              ${{ needs.check-version.outputs.tag }}
       SUITE:            ${{ needs.check-version.outputs.suite }}
       SOURCE:           ${{ needs.check-version.outputs.source }}
+      GIT_URL:          ${{ needs.check-version.outputs.git_url }}
 
     steps:
       # -----------------------------------------------------------------------
@@ -169,18 +217,19 @@ jobs:
             curl jq rsync
 
       # -----------------------------------------------------------------------
-      # 3. Clone from Launchpad git at the version tag
+      # 3. Clone from the resolved git URL at the version tag.
+      #    GIT_URL is either the custom repo URL (when custom_git_url input
+      #    was provided) or the standard Launchpad URL for the suite.
       #    The git repository has the complete debian/ directory including
       #    debian/rules, scripts/, templates/, etc. — unlike the source
       #    package which only ships debian.master/ with rules.d/ fragments.
       # -----------------------------------------------------------------------
-      - name: Clone from Launchpad git at version tag
+      - name: Clone from git repo at version tag
         run: |
-          LAUNCHPAD_URL="https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/${SUITE}"
           GIT_TAG="Ubuntu-${VERSION}"
 
-          echo "Cloning ${LAUNCHPAD_URL} at tag ${GIT_TAG} (shallow)..."
-          git clone --depth=1 --branch "${GIT_TAG}" "${LAUNCHPAD_URL}" kernel-src/
+          echo "Cloning ${GIT_URL} at tag ${GIT_TAG} (shallow)..."
+          git clone --depth=1 --branch "${GIT_TAG}" "${GIT_URL}" kernel-src/
 
           echo "SRC_DIR=kernel-src" >> "$GITHUB_ENV"
 
@@ -251,7 +300,7 @@ jobs:
             "Ubuntu suite   : ${SUITE}" \
             "Kernel version : ${VERSION}" \
             "Upstream       : ${UPSTREAM_VERSION}" \
-            "Source         : https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/${SUITE} (tag: Ubuntu-${VERSION})" \
+            "Source         : ${GIT_URL} (tag: Ubuntu-${VERSION})" \
             "Synced         : ${SYNC_DATE}" \
             > /tmp/commit-msg.txt
 
@@ -283,7 +332,6 @@ jobs:
       - name: Print summary
         if: always()
         run: |
-          LAUNCHPAD_URL="https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/${SUITE}"
           GIT_TAG="Ubuntu-${VERSION}"
 
           echo "## Source Sync Summary" >> "$GITHUB_STEP_SUMMARY"
@@ -294,7 +342,7 @@ jobs:
           echo "| Version    | \`${VERSION}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Branch     | [\`${SUITE}\`](https://github.com/${{ github.repository }}/tree/${SUITE}) |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Tag        | [\`${TAG}\`](https://github.com/${{ github.repository }}/releases/tag/${TAG}) |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Cloned from | \`${LAUNCHPAD_URL}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Cloned from | \`${GIT_URL}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Git tag    | \`${GIT_TAG}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Launchpad  | https://launchpad.net/ubuntu/${SUITE}/+source/${SOURCE}/${VERSION} |" >> "$GITHUB_STEP_SUMMARY"
 

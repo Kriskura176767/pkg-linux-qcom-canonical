@@ -216,6 +216,7 @@ suite branch.
 |-------|---------|-------------|
 | `suite` | `questing` | Ubuntu suite to sync — one suite per run |
 | `force` | `false` | Re-sync even if tag already exists |
+| `custom_git_url` | *(empty)* | Custom Launchpad git URL to clone from instead of the official Ubuntu kernel repo. When set, the Launchpad REST API is bypassed — the latest `Ubuntu-*` tag is discovered directly from the custom repo via `git ls-remote`. Leave empty for default behaviour. |
 
 **Jobs**:
 
