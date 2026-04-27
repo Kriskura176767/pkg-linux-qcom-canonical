@@ -23,7 +23,7 @@
 # (e.g.  noble-6.8.0-114.114).
 #
 # Repository variables (Settings → Variables → Actions):
-#   KERNEL_SUITE          – default suite to sync when not specified (default: resolute-qcom)
+#   KERNEL_SUITE          – default branch to sync when not specified (default: resolute-qcom)
 #   KERNEL_SOURCE         – source package name (default: linux)
 #   KERNEL_CUSTOM_GIT_URL – default custom git URL for scheduled runs
 #                           (default: https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute)
@@ -38,11 +38,11 @@ on:
     inputs:
       suite:
         description: >
-          Ubuntu branch name to sync into (e.g. noble, questing, resolute,
+          Branch name to sync into (e.g. noble, questing, resolute,
           resolute-qcom). This becomes the branch and tag prefix in this repo.
-          When using a custom_git_url with a team-specific suffix (e.g.
-          resolute-qcom), the base suite (resolute) is derived automatically
-          for Launchpad API queries and Docker container selection.
+          The base suite (e.g. resolute) is derived automatically from the
+          first component for Launchpad API queries and Docker container
+          selection.
         required: false
         default: "resolute-qcom"
         type: string
@@ -53,12 +53,19 @@ on:
       custom_git_url:
         description: >
           Custom Launchpad git URL to clone from instead of the official
-          Ubuntu kernel repo. Leave empty to use the configured default
-          (resolute-qcom repo). Set to 'none' to force the official
-          Ubuntu kernel repo for this run.
+          Ubuntu kernel repo. Defaults to the Ubuntu-qcom Launchpad repository.
           Example: https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute
         required: false
         default: "https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute"
+        type: string
+      git_tag_prefix:
+        description: >
+          Tag prefix used to discover and clone versions from a custom git repo.
+          Only applies when custom_git_url is set.
+          Default: Ubuntu-qcom  (matches Ubuntu-qcom-7.0.0-1003.3 style tags)
+          Use 'Ubuntu' for repos with standard Ubuntu-X.Y.Z-A.B tags.
+        required: false
+        default: "Ubuntu-qcom"
         type: string
 
 permissions:
@@ -79,6 +86,7 @@ jobs:
       base_suite:       ${{ steps.query.outputs.base_suite }}
       source:           ${{ steps.query.outputs.source }}
       git_url:          ${{ steps.query.outputs.git_url }}
+      git_tag_prefix:   ${{ steps.query.outputs.git_tag_prefix }}
       should_sync:      ${{ steps.gate.outputs.should_sync }}
 
     steps:
@@ -91,6 +99,7 @@ jobs:
           SUITE:          ${{ inputs.suite || vars.KERNEL_SUITE || 'resolute-qcom' }}
           SOURCE:         ${{ vars.KERNEL_SOURCE || 'linux' }}
           CUSTOM_GIT_URL: ${{ inputs.custom_git_url || vars.KERNEL_CUSTOM_GIT_URL || 'https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute' }}
+          GIT_TAG_PREFIX: ${{ inputs.git_tag_prefix || 'Ubuntu-qcom' }}
         run: |
           # Derive the base Ubuntu suite by stripping any custom suffix.
           # e.g. resolute-qcom → resolute, noble → noble, questing → questing
@@ -101,14 +110,20 @@ jobs:
 
           if [ -n "${CUSTOM_GIT_URL}" ]; then
             # ----------------------------------------------------------------
-            # Custom repo path: find the latest Ubuntu-* tag via git ls-remote.
-            # This bypasses the Launchpad REST API entirely — the version is
-            # derived directly from the tags present in the custom repository.
+            # Custom repo path: find the latest <GIT_TAG_PREFIX>-* tag via
+            # git ls-remote. This bypasses the Launchpad REST API entirely —
+            # the version is derived directly from the tags present in the
+            # custom repository.
+            #
+            # The Ubuntu-qcom Launchpad repository uses tags of the form:
+            #   Ubuntu-qcom-7.0.0-1003.3
+            # so GIT_TAG_PREFIX defaults to "Ubuntu-qcom".
             # ----------------------------------------------------------------
-            echo "Custom git URL provided: ${CUSTOM_GIT_URL}"
+            echo "Custom git URL    : ${CUSTOM_GIT_URL}"
+            echo "Git tag prefix    : ${GIT_TAG_PREFIX}"
             echo "Querying tags from custom repo..."
 
-            LATEST_TAG=$(git ls-remote --tags "${CUSTOM_GIT_URL}" 'refs/tags/Ubuntu-*' \
+            LATEST_TAG=$(git ls-remote --tags "${CUSTOM_GIT_URL}" "refs/tags/${GIT_TAG_PREFIX}-*" \
               | grep -v '\^{}' \
               | awk '{print $2}' \
               | sed 's|refs/tags/||' \
@@ -116,12 +131,12 @@ jobs:
               | tail -1)
 
             [ -n "${LATEST_TAG}" ] || {
-              echo "ERROR: No Ubuntu-* tags found in ${CUSTOM_GIT_URL}" >&2
+              echo "ERROR: No ${GIT_TAG_PREFIX}-* tags found in ${CUSTOM_GIT_URL}" >&2
               exit 1
             }
 
-            # Ubuntu-7.0.0-1.1 → 7.0.0-1.1
-            VERSION="${LATEST_TAG#Ubuntu-}"
+            # Ubuntu-qcom-7.0.0-1003.3 → 7.0.0-1003.3
+            VERSION="${LATEST_TAG#${GIT_TAG_PREFIX}-}"
             GIT_URL="${CUSTOM_GIT_URL}"
 
             echo "Latest tag : ${LATEST_TAG}"
@@ -130,7 +145,10 @@ jobs:
             # Default path: query the Launchpad REST API for the latest
             # officially published source package version, then construct
             # the standard Launchpad git URL for the suite.
+            # Official Ubuntu repos use Ubuntu-X.Y.Z-A.B tag format.
             # ----------------------------------------------------------------
+            GIT_TAG_PREFIX="Ubuntu"
+
             API="https://api.launchpad.net/1.0/ubuntu/+archive/primary"
             API+="?ws.op=getPublishedSources"
             API+="&source_name=${SOURCE}"
@@ -156,17 +174,19 @@ jobs:
           UPSTREAM=$(echo "${VERSION}" | cut -d'-' -f1)
           TAG="${SUITE}-${VERSION}"
 
-          echo "version=${VERSION}"           >> "$GITHUB_OUTPUT"
-          echo "upstream_version=${UPSTREAM}" >> "$GITHUB_OUTPUT"
-          echo "tag=${TAG}"                   >> "$GITHUB_OUTPUT"
-          echo "suite=${SUITE}"               >> "$GITHUB_OUTPUT"
-          echo "base_suite=${BASE_SUITE}"     >> "$GITHUB_OUTPUT"
-          echo "source=${SOURCE}"             >> "$GITHUB_OUTPUT"
-          echo "git_url=${GIT_URL}"           >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}"               >> "$GITHUB_OUTPUT"
+          echo "upstream_version=${UPSTREAM}"     >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}"                       >> "$GITHUB_OUTPUT"
+          echo "suite=${SUITE}"                   >> "$GITHUB_OUTPUT"
+          echo "base_suite=${BASE_SUITE}"         >> "$GITHUB_OUTPUT"
+          echo "source=${SOURCE}"                 >> "$GITHUB_OUTPUT"
+          echo "git_url=${GIT_URL}"               >> "$GITHUB_OUTPUT"
+          echo "git_tag_prefix=${GIT_TAG_PREFIX}" >> "$GITHUB_OUTPUT"
 
-          echo "Version : ${VERSION}"
-          echo "Tag     : ${TAG}"
-          echo "Git URL : ${GIT_URL}"
+          echo "Version    : ${VERSION}"
+          echo "Tag        : ${TAG}"
+          echo "Git URL    : ${GIT_URL}"
+          echo "Tag prefix : ${GIT_TAG_PREFIX}"
 
       - name: Check whether tag already exists
         id: gate
@@ -203,6 +223,7 @@ jobs:
       SUITE:            ${{ needs.check-version.outputs.suite }}
       SOURCE:           ${{ needs.check-version.outputs.source }}
       GIT_URL:          ${{ needs.check-version.outputs.git_url }}
+      GIT_TAG_PREFIX:   ${{ needs.check-version.outputs.git_tag_prefix }}
 
     steps:
       # -----------------------------------------------------------------------
@@ -237,13 +258,13 @@ jobs:
       # 3. Clone from the resolved git URL at the version tag.
       #    GIT_URL is either the custom repo URL (when custom_git_url input
       #    was provided) or the standard Launchpad URL for the suite.
-      #    The git repository has the complete debian/ directory including
-      #    debian/rules, scripts/, templates/, etc. — unlike the source
-      #    package which only ships debian.master/ with rules.d/ fragments.
+      #    GIT_TAG_PREFIX determines the tag format:
+      #      Ubuntu-qcom → Ubuntu-qcom-7.0.0-1003.3  (resolute-qcom repo)
+      #      Ubuntu      → Ubuntu-6.8.0-114.114       (official repos)
       # -----------------------------------------------------------------------
       - name: Clone from git repo at version tag
         run: |
-          GIT_TAG="Ubuntu-${VERSION}"
+          GIT_TAG="${GIT_TAG_PREFIX}-${VERSION}"
 
           echo "Cloning ${GIT_URL} at tag ${GIT_TAG} (shallow)..."
           git clone --depth=1 --branch "${GIT_TAG}" "${GIT_URL}" kernel-src/
@@ -314,17 +335,17 @@ jobs:
           SYNC_DATE=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
           printf '%s\n\n%s\n%s\n%s\n%s\n%s\n' \
             "${SUITE}: ${VERSION}" \
-            "Ubuntu suite   : ${SUITE}" \
+            "Branch         : ${SUITE}" \
             "Kernel version : ${VERSION}" \
             "Upstream       : ${UPSTREAM_VERSION}" \
-            "Source         : ${GIT_URL} (tag: Ubuntu-${VERSION})" \
+            "Source         : ${GIT_URL} (tag: ${GIT_TAG_PREFIX}-${VERSION})" \
             "Synced         : ${SYNC_DATE}" \
             > /tmp/commit-msg.txt
 
           git add --all
 
           if git diff --cached --quiet; then
-            echo "No changes to commit – suite branch already has this content"
+            echo "No changes to commit – branch already has this content"
           else
             git commit -F /tmp/commit-msg.txt
             echo "Committed ${SUITE} branch at $(git rev-parse HEAD)"
@@ -333,7 +354,7 @@ jobs:
       - name: Tag the commit
         run: |
           cd suite-repo
-          git tag -fa "${TAG}" -m "Ubuntu ${SUITE} kernel ${VERSION}"
+          git tag -fa "${TAG}" -m "${SUITE} kernel ${VERSION}"
           echo "Tagged: ${TAG}"
 
       - name: Push suite branch and tag
@@ -349,15 +370,15 @@ jobs:
       - name: Print summary
         if: always()
         run: |
-          GIT_TAG="Ubuntu-${VERSION}"
+          GIT_TAG="${GIT_TAG_PREFIX}-${VERSION}"
 
           echo "## Source Sync Summary" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
           echo "|-------|-------|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Suite      | \`${SUITE}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Branch     | \`${SUITE}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Version    | \`${VERSION}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Branch     | [\`${SUITE}\`](https://github.com/${{ github.repository }}/tree/${SUITE}) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Branch ref | [\`${SUITE}\`](https://github.com/${{ github.repository }}/tree/${SUITE}) |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Tag        | [\`${TAG}\`](https://github.com/${{ github.repository }}/releases/tag/${TAG}) |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Cloned from | \`${GIT_URL}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Git tag    | \`${GIT_TAG}\` |" >> "$GITHUB_STEP_SUMMARY"

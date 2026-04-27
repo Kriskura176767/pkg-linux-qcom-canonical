@@ -13,14 +13,14 @@ SCHEDULE: daily 04:00 UTC  ·  RUNNER: ubuntu-24.04-arm
   Ubuntu-qcom Launchpad repository
   (git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute)
          │
-         ▼  git ls-remote --tags → latest Ubuntu-* tag → version X.Y.Z-A.B
+         ▼  git ls-remote --tags → latest Ubuntu-qcom-* tag → version X.Y.Z-A.B
 ╔════════════════════════════════════════════════════════════════════════════╗
 ║  fetch-source-pkg.yml                                                      ║
 ║                                                                            ║
 ║  ┌──────────────────────────────────────────────────────────────────────┐ ║
 ║  │  Job 1 · check-version                                               │ ║
 ║  │                                                                      │ ║
-║  │  git ls-remote resolute-qcom repo → latest Ubuntu-* tag             │ ║
+║  │  git ls-remote resolute-qcom repo → latest Ubuntu-qcom-* tag        │ ║
 ║  │  → latest version: resolute-qcom X.Y.Z-A.B                          │ ║
 ║  │                                                                      │ ║
 ║  │  git ls-remote (authenticated) → tag resolute-qcom-X.Y.Z-A.B exists?│ ║
@@ -34,7 +34,7 @@ SCHEDULE: daily 04:00 UTC  ·  RUNNER: ubuntu-24.04-arm
 ║  │  Job 2 · sync                                                        │ ║
 ║  │                                                                      │ ║
 ║  │  Free disk space (~10 GB)                                            │ ║
-║  │  git clone --depth=1 resolute-qcom repo @ Ubuntu-X.Y.Z-A.B          │ ║
+║  │  git clone --depth=1 resolute-qcom repo @ Ubuntu-qcom-X.Y.Z-A.B     │ ║
 ║  │  Verify >5000 files cloned                                           │ ║
 ║  │  rsync source → resolute-qcom branch (orphan)                       │ ║
 ║  │  git commit + tag resolute-qcom-X.Y.Z-A.B                           │ ║
@@ -209,12 +209,12 @@ git ls-remote --tags \
   'refs/tags/Ubuntu-*'
 ```
 
-Tags are sorted with `sort -V` (version sort) and the latest `Ubuntu-*` tag
+Tags are sorted with `sort -V` (version sort) and the latest `Ubuntu-qcom-*` tag
 is selected. The version is extracted from the tag name:
 
 ```
-Ubuntu-7.0.0-5.5  →  version: 7.0.0-5.5
-                  →  branch tag: resolute-qcom-7.0.0-5.5
+Ubuntu-qcom-7.0.0-1003.3  →  version: 7.0.0-1003.3
+                           →  branch tag: resolute-qcom-7.0.0-1003.3
 ```
 
 The Launchpad REST API is **not used** for resolute-qcom — the git tags are
@@ -224,8 +224,9 @@ the authoritative source of version information for this repository.
 
 | Item | Pattern | Example |
 |------|---------|---------|
+| Upstream git tag | `Ubuntu-qcom-X.Y.Z-A.B` | `Ubuntu-qcom-7.0.0-1003.3` |
 | Branch in this repo | `resolute-qcom` | `resolute-qcom` |
-| Tag in this repo | `resolute-qcom-X.Y.Z-A.B` | `resolute-qcom-7.0.0-5.5` |
+| Tag in this repo | `resolute-qcom-X.Y.Z-A.B` | `resolute-qcom-7.0.0-1003.3` |
 | Docker container | `pkg-builder:resolute` | base suite derived automatically |
 
 ---
@@ -262,9 +263,10 @@ and commits it to the suite branch.
 
 | Input | Default | Description |
 |-------|---------|-------------|
-| `suite` | `resolute-qcom` | Ubuntu branch name to sync into (e.g. `noble`, `questing`, `resolute`, `resolute-qcom`). Becomes the branch and tag prefix in this repo. The base suite (`resolute`) is derived automatically from the first component for Docker container selection. |
+| `suite` | `resolute-qcom` | Branch name to sync into (e.g. `noble`, `questing`, `resolute`, `resolute-qcom`). Becomes the branch and tag prefix in this repo. The base suite (`resolute`) is derived automatically from the first component for Docker container selection. |
 | `force` | `false` | Re-sync even if tag already exists |
-| `custom_git_url` | `https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute` | Custom Launchpad git URL to clone from. Defaults to the resolute-qcom repo. When set, the Launchpad REST API is bypassed — the latest `Ubuntu-*` tag is discovered directly from the repo via `git ls-remote`. |
+| `custom_git_url` | `https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute` | Custom Launchpad git URL to clone from. Defaults to the Ubuntu-qcom Launchpad repository. When set, the Launchpad REST API is bypassed — the latest tag is discovered directly from the repo via `git ls-remote`. |
+| `git_tag_prefix` | `Ubuntu-qcom` | Tag prefix used to filter and strip when discovering versions from a custom repo. Default `Ubuntu-qcom` matches `Ubuntu-qcom-7.0.0-1003.3` style tags. Use `Ubuntu` for repos with standard `Ubuntu-X.Y.Z-A.B` tags. |
 
 **Jobs**:
 
@@ -488,7 +490,7 @@ Ubuntu kernel versions follow `X.Y.Z-A.B`:
 | `A` | `114` | ABI number |
 | `B` | `114` | Upload number |
 
-Tags use `<suite>-X.Y.Z-A.B`, e.g. `resolute-qcom-7.0.0-5.5`.
+Tags use `<branch>-X.Y.Z-A.B`, e.g. `resolute-qcom-7.0.0-1003.3`.
 
 ---
 
