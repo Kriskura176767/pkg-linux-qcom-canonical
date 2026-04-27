@@ -52,8 +52,9 @@ on:
         default: false
       custom_git_url:
         description: >
-          Custom Launchpad git URL to clone from instead of the official
-          Ubuntu kernel repo. Defaults to the Ubuntu-qcom Launchpad repository.
+          Custom Launchpad git URL to clone from. Defaults to the Ubuntu-qcom
+          Launchpad repository. Clear this field to sync an official Ubuntu
+          suite (noble, questing, resolute) from the upstream Ubuntu kernel repo.
           Example: https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute
         required: false
         default: "https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute"
@@ -89,7 +90,11 @@ jobs:
         env:
           SUITE:          ${{ inputs.suite || vars.KERNEL_SUITE || 'resolute-qcom' }}
           SOURCE:         ${{ vars.KERNEL_SOURCE || 'linux' }}
-          CUSTOM_GIT_URL: ${{ inputs.custom_git_url || vars.KERNEL_CUSTOM_GIT_URL || 'https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute' }}
+          # For scheduled runs: fall back to vars.KERNEL_CUSTOM_GIT_URL or the
+          # hardcoded carmel-team URL so the daily build always uses resolute-qcom.
+          # For manual runs: use exactly what the user entered — empty string means
+          # "use the official Ubuntu repo" (no custom URL → Launchpad REST API path).
+          CUSTOM_GIT_URL: ${{ github.event_name == 'schedule' && (vars.KERNEL_CUSTOM_GIT_URL || 'https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute') || inputs.custom_git_url }}
           # GIT_TAG_PREFIX is derived automatically:
           #   custom URL → Ubuntu-qcom  (Ubuntu-qcom-7.0.0-1003.3 style tags)
           #   official   → Ubuntu       (Ubuntu-X.Y.Z-A.B style tags, set in else branch)
