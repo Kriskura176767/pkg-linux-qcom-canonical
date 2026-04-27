@@ -10,7 +10,7 @@ Mirror and CI build pipeline for Canonical Ubuntu kernel source packages.
 SCHEDULE: daily 04:00 UTC  ·  RUNNER: ubuntu-24.04-arm
 ══════════════════════════════════════════════════════════════════════════════
 
-  Resolute Qcom git repo
+  Ubuntu-qcom Launchpad repository
   (git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute)
          │
          ▼  git ls-remote --tags → latest Ubuntu-* tag → version X.Y.Z-A.B
@@ -292,7 +292,7 @@ manually via `Actions → Build: Canonical Kernel .deb Packages → Run workflow
 
 | Input | Default | Description |
 |-------|---------|-------------|
-| `suite` | `questing` | Suite branch to build from (e.g. `noble`, `questing`, `resolute`, `resolute-qcom`). The base suite is derived automatically for Docker container selection. |
+| `suite` | `resolute-qcom` | Branch to build from (e.g. `noble`, `questing`, `resolute`, `resolute-qcom`). The base suite is derived automatically for Docker container selection. |
 | `kernel_version` | — | Version string for release asset attachment |
 | `arch` | `arm64` | Target architecture |
 | `flavor` | `generic` | Kernel flavour: `generic`, `lowlatency`, or `all` |
@@ -350,7 +350,7 @@ Go to **Actions** and enable workflows if prompted.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `KERNEL_SUITE` | `resolute-qcom` | Default suite for scheduled runs |
+| `KERNEL_SUITE` | `resolute-qcom` | Default branch name for scheduled runs |
 | `KERNEL_SOURCE` | `linux` | Source package name |
 | `KERNEL_CUSTOM_GIT_URL` | `https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute` | Default custom git URL for scheduled runs |
 
