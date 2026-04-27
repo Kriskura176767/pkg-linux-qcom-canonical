@@ -58,15 +58,6 @@ on:
         required: false
         default: "https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute"
         type: string
-      git_tag_prefix:
-        description: >
-          Tag prefix used to discover and clone versions from a custom git repo.
-          Only applies when custom_git_url is set.
-          Default: Ubuntu-qcom  (matches Ubuntu-qcom-7.0.0-1003.3 style tags)
-          Use 'Ubuntu' for repos with standard Ubuntu-X.Y.Z-A.B tags.
-        required: false
-        default: "Ubuntu-qcom"
-        type: string
 
 permissions:
   contents: write
@@ -99,7 +90,10 @@ jobs:
           SUITE:          ${{ inputs.suite || vars.KERNEL_SUITE || 'resolute-qcom' }}
           SOURCE:         ${{ vars.KERNEL_SOURCE || 'linux' }}
           CUSTOM_GIT_URL: ${{ inputs.custom_git_url || vars.KERNEL_CUSTOM_GIT_URL || 'https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute' }}
-          GIT_TAG_PREFIX: ${{ inputs.git_tag_prefix || 'Ubuntu-qcom' }}
+          # GIT_TAG_PREFIX is derived automatically:
+          #   custom URL → Ubuntu-qcom  (Ubuntu-qcom-7.0.0-1003.3 style tags)
+          #   official   → Ubuntu       (Ubuntu-X.Y.Z-A.B style tags, set in else branch)
+          GIT_TAG_PREFIX: "Ubuntu-qcom"
         run: |
           # Derive the base Ubuntu suite by stripping any custom suffix.
           # e.g. resolute-qcom → resolute, noble → noble, questing → questing
