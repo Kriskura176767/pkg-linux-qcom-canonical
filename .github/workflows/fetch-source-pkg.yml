@@ -23,8 +23,10 @@
 # (e.g.  noble-6.8.0-114.114).
 #
 # Repository variables (Settings → Variables → Actions):
-#   KERNEL_SUITE   – default suite to sync when not specified (default: questing)
-#   KERNEL_SOURCE  – source package name (default: linux)
+#   KERNEL_SUITE          – default suite to sync when not specified (default: resolute-qcom)
+#   KERNEL_SOURCE         – source package name (default: linux)
+#   KERNEL_CUSTOM_GIT_URL – default custom git URL for scheduled runs
+#                           (default: https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute)
 
 name: "Sync: Canonical Kernel Sources to Branch"
 
@@ -42,7 +44,7 @@ on:
           resolute-qcom), the base suite (resolute) is derived automatically
           for Launchpad API queries and Docker container selection.
         required: false
-        default: "questing"
+        default: "resolute-qcom"
         type: string
       force:
         description: "Force sync even if this version is already committed"
@@ -51,10 +53,12 @@ on:
       custom_git_url:
         description: >
           Custom Launchpad git URL to clone from instead of the official
-          Ubuntu kernel repo. Leave empty to use the default.
+          Ubuntu kernel repo. Leave empty to use the configured default
+          (resolute-qcom repo). Set to 'none' to force the official
+          Ubuntu kernel repo for this run.
           Example: https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute
         required: false
-        default: ""
+        default: "https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute"
         type: string
 
 permissions:
@@ -84,9 +88,9 @@ jobs:
       - name: Resolve version and git URL
         id: query
         env:
-          SUITE:          ${{ inputs.suite || vars.KERNEL_SUITE || 'questing' }}
+          SUITE:          ${{ inputs.suite || vars.KERNEL_SUITE || 'resolute-qcom' }}
           SOURCE:         ${{ vars.KERNEL_SOURCE || 'linux' }}
-          CUSTOM_GIT_URL: ${{ inputs.custom_git_url || '' }}
+          CUSTOM_GIT_URL: ${{ inputs.custom_git_url || vars.KERNEL_CUSTOM_GIT_URL || 'https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute' }}
         run: |
           # Derive the base Ubuntu suite by stripping any custom suffix.
           # e.g. resolute-qcom → resolute, noble → noble, questing → questing

@@ -10,20 +10,20 @@ Mirror and CI build pipeline for Canonical Ubuntu kernel source packages.
 SCHEDULE: daily 04:00 UTC  ·  RUNNER: ubuntu-24.04-arm
 ══════════════════════════════════════════════════════════════════════════════
 
-  Launchpad REST API
-  (api.launchpad.net)
+  Resolute Qcom git repo
+  (git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute)
          │
-         ▼
+         ▼  git ls-remote --tags → latest Ubuntu-* tag → version X.Y.Z-A.B
 ╔════════════════════════════════════════════════════════════════════════════╗
 ║  fetch-source-pkg.yml                                                      ║
 ║                                                                            ║
 ║  ┌──────────────────────────────────────────────────────────────────────┐ ║
 ║  │  Job 1 · check-version                                               │ ║
 ║  │                                                                      │ ║
-║  │  Query Launchpad API (ws.size=300, exact source_package_name match)  │ ║
-║  │  → latest version: questing X.Y.Z-A.B                               │ ║
+║  │  git ls-remote resolute-qcom repo → latest Ubuntu-* tag             │ ║
+║  │  → latest version: resolute-qcom X.Y.Z-A.B                          │ ║
 ║  │                                                                      │ ║
-║  │  git ls-remote (authenticated) → tag questing-X.Y.Z-A.B exists?     │ ║
+║  │  git ls-remote (authenticated) → tag resolute-qcom-X.Y.Z-A.B exists?│ ║
 ║  │                                                                      │ ║
 ║  │    YES ──▶  should_sync=false  ──▶  workflow exits cleanly          │ ║
 ║  │    NO  ──▶  should_sync=true   ──▶  continue ↓                      │ ║
@@ -34,10 +34,10 @@ SCHEDULE: daily 04:00 UTC  ·  RUNNER: ubuntu-24.04-arm
 ║  │  Job 2 · sync                                                        │ ║
 ║  │                                                                      │ ║
 ║  │  Free disk space (~10 GB)                                            │ ║
-║  │  git clone --depth=1 Launchpad git @ Ubuntu-X.Y.Z-A.B               │ ║
+║  │  git clone --depth=1 resolute-qcom repo @ Ubuntu-X.Y.Z-A.B          │ ║
 ║  │  Verify >5000 files cloned                                           │ ║
-║  │  rsync source → questing branch (orphan)                            │ ║
-║  │  git commit + tag questing-X.Y.Z-A.B                                │ ║
+║  │  rsync source → resolute-qcom branch (orphan)                       │ ║
+║  │  git commit + tag resolute-qcom-X.Y.Z-A.B                           │ ║
 ║  │  git push branch + tag                                               │ ║
 ║  └──────────────────────────────────────────────────────────────────────┘ ║
 ║                            │ sync succeeded                                ║
@@ -46,7 +46,7 @@ SCHEDULE: daily 04:00 UTC  ·  RUNNER: ubuntu-24.04-arm
 ║  │  Job 3 · trigger-build                                               │ ║
 ║  │                                                                      │ ║
 ║  │  gh workflow run build-kernel.yml                                    │ ║
-║  │    suite=questing  kernel_version=X.Y.Z-A.B  arch=arm64             │ ║
+║  │    suite=resolute-qcom  kernel_version=X.Y.Z-A.B  arch=arm64        │ ║
 ║  └──────────────────────────────────────────────────────────────────────┘ ║
 ╚════════════════════════════════════════════════════════════════════════════╝
          │
@@ -54,12 +54,12 @@ SCHEDULE: daily 04:00 UTC  ·  RUNNER: ubuntu-24.04-arm
 ╔════════════════════════════════════════════════════════════════════════════╗
 ║  build-kernel.yml                                                          ║
 ║                                                                            ║
-║  Checkout questing branch  ──▶  kernel-src/                               ║
-║  Checkout docker-pkg-build  ──▶  docker-pkg-build/                        ║
-║  docker_deb_build.py --rebuild -d questing                                 ║
+║  Checkout resolute-qcom branch  ──▶  kernel-src/                          ║
+║  Checkout docker-pkg-build      ──▶  docker-pkg-build/                    ║
+║  docker_deb_build.py --rebuild -d resolute   ← base suite derived         ║
 ║                                                                            ║
 ║  ┌──────────────────────────────────────────────────────────────────────┐ ║
-║  │  docker run --privileged ghcr.io/qualcomm-linux/pkg-builder:questing│ ║
+║  │  docker run --privileged ghcr.io/qualcomm-linux/pkg-builder:resolute│ ║
 ║  │                                                                      │ ║
 ║  │  apt-get build-dep linux                                             │ ║
 ║  │  fakeroot make -f debian/rules clean            ← setup env         │ ║
@@ -74,8 +74,8 @@ SCHEDULE: daily 04:00 UTC  ·  RUNNER: ubuntu-24.04-arm
   ┌──────────────┐    ┌──────────────────┐    ┌──────────────────┐
   │  S3 Bucket   │    │ GitHub Artifact  │    │  GitHub Release  │
   │              │    │                  │    │                  │
-  │ qli-prd-     │    │ 90-day retention │    │ questing-X.Y.Z-  │
-  │ lecore-gh-   │    │ Actions → run    │    │ A.B              │
+  │ qli-prd-     │    │ 90-day retention │    │ resolute-qcom-   │
+  │ lecore-gh-   │    │ Actions → run    │    │ X.Y.Z-A.B        │
   │ artifacts    │    │ → Artifacts      │    │ Releases →       │
   │              │    │                  │    │ Assets           │
   │ self-hosted  │    │ always           │    │ permanent        │
@@ -99,10 +99,10 @@ MANUAL: Actions → Build: Canonical Kernel .deb Packages → Run workflow
   ┌─────────────────────────────────────────────────────────────────────────┐
   │  Mode A — Test / dev build  (kernel_version left empty)                 │
   │                                                                         │
-  │  suite=questing  kernel_version=<empty>                                 │
+  │  suite=resolute-qcom  kernel_version=<empty>                            │
   │         │                                                               │
   │         ▼                                                               │
-  │  Checkout questing branch HEAD                                          │
+  │  Checkout resolute-qcom branch HEAD                                     │
   │  (includes any commits you pushed on top of the synced source)          │
   │         │                                                               │
   │         ▼                                                               │
@@ -115,37 +115,37 @@ MANUAL: Actions → Build: Canonical Kernel .deb Packages → Run workflow
   ┌─────────────────────────────────────────────────────────────────────────┐
   │  Mode B — Release build for latest synced version                       │
   │                                                                         │
-  │  suite=questing  kernel_version=6.17.0-24.24                            │
+  │  suite=resolute-qcom  kernel_version=7.0.0-5.5                          │
   │         │                                                               │
   │         ▼                                                               │
-  │  Validate tag questing-6.17.0-24.24 exists  (fail fast if not)         │
+  │  Validate tag resolute-qcom-7.0.0-5.5 exists  (fail fast if not)       │
   │         │                                                               │
   │         ▼                                                               │
-  │  Checkout tag questing-6.17.0-24.24  ← exact synced source             │
+  │  Checkout tag resolute-qcom-7.0.0-5.5  ← exact synced source           │
   │         │                                                               │
   │         ▼                                                               │
   │  Build .deb packages                                                    │
   │         │                                                               │
   │         ▼                                                               │
-  │  GitHub Actions artifact (90-day) + GitHub Release questing-6.17.0-24.24│
+  │  GitHub Actions artifact (90-day) + GitHub Release resolute-qcom-7.0.0-5.5│
   └─────────────────────────────────────────────────────────────────────────┘
 
   ┌─────────────────────────────────────────────────────────────────────────┐
   │  Mode C — Rebuild / re-release an older synced version                  │
   │                                                                         │
-  │  suite=questing  kernel_version=6.17.0-23.23                            │
+  │  suite=resolute-qcom  kernel_version=7.0.0-4.4                          │
   │         │                                                               │
   │         ▼                                                               │
-  │  Validate tag questing-6.17.0-23.23 exists  (fail fast if not)         │
+  │  Validate tag resolute-qcom-7.0.0-4.4 exists  (fail fast if not)       │
   │         │                                                               │
   │         ▼                                                               │
-  │  Checkout tag questing-6.17.0-23.23  ← older synced source (not HEAD)  │
+  │  Checkout tag resolute-qcom-7.0.0-4.4  ← older synced source (not HEAD)│
   │         │                                                               │
   │         ▼                                                               │
   │  Build .deb packages                                                    │
   │         │                                                               │
   │         ▼                                                               │
-  │  GitHub Actions artifact (90-day) + GitHub Release questing-6.17.0-23.23│
+  │  GitHub Actions artifact (90-day) + GitHub Release resolute-qcom-7.0.0-4.4│
   │  (existing release assets are overwritten with --clobber)               │
   └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -172,6 +172,11 @@ pkg-linux-qcom-canonical
 │       One commit per Canonical upload
 │       Tagged noble-6.8.0-114.114, noble-6.8.0-115.115, …
 │
+├── resolute-qcom branch  (orphan)
+│   └── Full resolute-qcom kernel source tree (daily default)
+│       One commit per upstream tag
+│       Tagged resolute-qcom-7.0.0-X.X, …
+│
 └── <suite> branch  (orphan, added on demand)
     └── Full kernel source for that suite
         e.g. questing, resolute
@@ -182,15 +187,59 @@ and contain only the extracted kernel source tree.
 
 ---
 
+## Resolute Qcom kernel source
+
+The daily scheduled build syncs from a custom resolute kernel repository
+maintained separately from the official Ubuntu kernel tree. This repository
+is referred to as the **resolute-qcom** source.
+
+| Resource | URL |
+|----------|-----|
+| Git repository | `https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute` |
+
+**How version discovery works for resolute-qcom:**
+
+Unlike the official Ubuntu kernel path (which queries the Launchpad REST API
+for the latest published source package), the resolute-qcom path queries the
+git repository directly:
+
+```bash
+git ls-remote --tags \
+  https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute \
+  'refs/tags/Ubuntu-*'
+```
+
+Tags are sorted with `sort -V` (version sort) and the latest `Ubuntu-*` tag
+is selected. The version is extracted from the tag name:
+
+```
+Ubuntu-7.0.0-5.5  →  version: 7.0.0-5.5
+                  →  branch tag: resolute-qcom-7.0.0-5.5
+```
+
+The Launchpad REST API is **not used** for resolute-qcom — the git tags are
+the authoritative source of version information for this repository.
+
+**Branch and tag naming:**
+
+| Item | Pattern | Example |
+|------|---------|---------|
+| Branch in this repo | `resolute-qcom` | `resolute-qcom` |
+| Tag in this repo | `resolute-qcom-X.Y.Z-A.B` | `resolute-qcom-7.0.0-5.5` |
+| Docker container | `pkg-builder:resolute` | base suite derived automatically |
+
+---
+
 ## Upstream source
 
 | Resource | URL pattern | Used by |
 |----------|-------------|---------|
-| Launchpad REST API | `https://api.launchpad.net/1.0/ubuntu/+archive/primary?ws.op=getPublishedSources&source_name=linux&distro_series=/ubuntu/<suite>&ws.size=300` | `check-version` job — queries for the latest published version number |
-| Launchpad git repository | `https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/<suite>` | `sync` job — clones the complete source tree at tag `Ubuntu-<version>` |
+| Launchpad REST API | `https://api.launchpad.net/1.0/ubuntu/+archive/primary?ws.op=getPublishedSources&source_name=linux&distro_series=/ubuntu/<suite>&ws.size=300` | `check-version` job — queries for the latest published version number (official suites only; bypassed for resolute-qcom) |
+| Launchpad git repository | `https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/<suite>` | `sync` job — clones the complete source tree at tag `Ubuntu-<version>` (official suites only) |
+| Resolute Qcom git repository | `https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute` | `sync` job — daily default; version discovered via `git ls-remote` |
 | GitHub Releases | https://github.com/qualcomm-linux/pkg-linux-qcom-canonical/releases | `build-kernel` job — attaches built `.deb` packages |
 
-**Example (noble suite):**
+**Example (noble suite — official upstream):**
 - Source packages: https://launchpad.net/ubuntu/noble/+source/linux
 - Git repository: `https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/noble`
 
@@ -200,11 +249,10 @@ and contain only the extracted kernel source tree.
 
 ### `fetch-source-pkg.yml` — Sync sources to branch
 
-Queries the Launchpad REST API for the latest published `linux` source
-package version (exact name match), then clones the Launchpad git
-repository at the corresponding tag (`Ubuntu-<version>`) to get the
-complete source tree including `debian/rules`, and commits it to the
-suite branch.
+Queries the git repository for the latest `Ubuntu-*` tag (resolute-qcom, daily
+default) or the Launchpad REST API (official suites), then clones the source
+tree at the corresponding tag to get the complete source including `debian/rules`,
+and commits it to the suite branch.
 
 **Schedule**: daily at **04:00 UTC**  
 **Manual trigger**: `Actions → Sync: Canonical Kernel Sources to Branch → Run workflow`  
@@ -214,16 +262,16 @@ suite branch.
 
 | Input | Default | Description |
 |-------|---------|-------------|
-| `suite` | `questing` | Ubuntu branch name to sync into (e.g. `noble`, `questing`, `resolute`, `resolute-qcom`). Becomes the branch and tag prefix in this repo. The base suite (`resolute`) is derived automatically from the first component for Launchpad API queries and Docker container selection. |
+| `suite` | `resolute-qcom` | Ubuntu branch name to sync into (e.g. `noble`, `questing`, `resolute`, `resolute-qcom`). Becomes the branch and tag prefix in this repo. The base suite (`resolute`) is derived automatically from the first component for Docker container selection. |
 | `force` | `false` | Re-sync even if tag already exists |
-| `custom_git_url` | *(empty)* | Custom Launchpad git URL to clone from instead of the official Ubuntu kernel repo. When set, the Launchpad REST API is bypassed — the latest `Ubuntu-*` tag is discovered directly from the custom repo via `git ls-remote`. Leave empty for default behaviour. |
+| `custom_git_url` | `https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute` | Custom Launchpad git URL to clone from. Defaults to the resolute-qcom repo. When set, the Launchpad REST API is bypassed — the latest `Ubuntu-*` tag is discovered directly from the repo via `git ls-remote`. |
 
 **Jobs**:
 
 | Job | What it does |
 |-----|-------------|
-| `check-version` | Queries Launchpad API (`ws.size=300`) with exact `source_package_name` filter; checks tag existence via authenticated `git ls-remote`; sets `should_sync` flag |
-| `sync` | Frees disk space; `git clone --depth=1 --branch Ubuntu-<version>` from Launchpad git; verifies >5000 files; commits to suite branch; creates tag |
+| `check-version` | For resolute-qcom: queries tags via `git ls-remote` on the custom repo. For official suites: queries Launchpad API (`ws.size=300`). Checks tag existence; sets `should_sync` flag. |
+| `sync` | Frees disk space; `git clone --depth=1 --branch Ubuntu-<version>` from the resolved git URL; verifies >5000 files; commits to suite branch; creates tag |
 | `trigger-build` | Dispatches `build-kernel.yml` with `suite`, `kernel_version`, `arch=arm64`, `flavor=generic` |
 
 **Idempotent**: if the tag for the latest version already exists, the workflow exits cleanly without downloading anything.
@@ -233,7 +281,7 @@ suite branch.
 ### `build-kernel.yml` — Build .deb packages
 
 Checks out the suite branch (full kernel source tree) and builds `.deb`
-packages inside the suite-matched `ghcr.io/qualcomm-linux/pkg-builder:<suite>`
+packages inside the base-suite-matched `ghcr.io/qualcomm-linux/pkg-builder:<base_suite>`
 container using `fakeroot debian/rules binary-<flavor>`.
 
 **Trigger**: dispatched automatically by `fetch-source-pkg.yml`, or
@@ -269,15 +317,16 @@ The scheduled daily sync always dispatches with `runner=ubuntu-24.04-arm`. The `
 1. Free up disk space (~10 GB)
 2. Checkout suite branch → `kernel-src/`
 3. Checkout `qualcomm-linux/docker-pkg-build@main` → `docker-pkg-build/`
-4. Build docker image: `docker_deb_build.py --rebuild -d <suite>`
-5. Run build inside `ghcr.io/qualcomm-linux/pkg-builder:<suite>` container:
+4. Derive `BASE_SUITE` from suite (e.g. `resolute-qcom` → `resolute`)
+5. Build docker image: `docker_deb_build.py --rebuild -d <base_suite>`
+6. Run build inside `ghcr.io/qualcomm-linux/pkg-builder:<base_suite>` container:
    ```
    apt-get build-dep linux
    fakeroot make -f debian/rules clean
    fakeroot debian/rules binary-<flavor> do_skip_checks=true
    ```
    See [Build container notes](#build-container-notes) for why these exact invocations are used.
-6. Collect `.deb` files from workspace root
+7. Collect `.deb` files from workspace root
 
 **Output**:
 
@@ -301,15 +350,16 @@ Go to **Actions** and enable workflows if prompted.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `KERNEL_SUITE` | `questing` | Default suite for scheduled runs |
+| `KERNEL_SUITE` | `resolute-qcom` | Default suite for scheduled runs |
 | `KERNEL_SOURCE` | `linux` | Source package name |
+| `KERNEL_CUSTOM_GIT_URL` | `https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute` | Default custom git URL for scheduled runs |
 
 ### 3. Run the first sync
 
 ```bash
 gh workflow run fetch-source-pkg.yml \
   --repo qualcomm-linux/pkg-linux-qcom-canonical \
-  --field suite=noble
+  --field suite=resolute-qcom
 ```
 
 ---
@@ -347,9 +397,22 @@ This produces a complete, buildable source tree with `debian/rules` — the same
 
 ### How the sync workflow finds and clones the kernel source
 
-The sync workflow uses two Launchpad services for different purposes:
+The sync workflow supports two paths depending on whether a custom git URL is configured:
 
-**Step 1 — Launchpad REST API: find the latest published version**
+**Path A — Resolute Qcom (daily default): version from git tags**
+
+```bash
+git ls-remote --tags \
+  https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute \
+  'refs/tags/Ubuntu-*'
+# → sort -V | tail -1 → Ubuntu-7.0.0-5.5
+# → VERSION=7.0.0-5.5
+```
+
+The latest `Ubuntu-*` tag in the custom repo is the authoritative version source.
+The Launchpad REST API is not used.
+
+**Path B — Official suites (noble, questing, resolute): version from Launchpad REST API**
 
 ```
 GET https://api.launchpad.net/1.0/ubuntu/+archive/primary
@@ -377,18 +440,10 @@ The API tells us the exact version string of the latest *officially published*
 kernel. A git tag might exist before the package is published to the archive,
 so the API is the authoritative source for "what is the current release".
 
-**Step 2 — Construct the git tag**
-
-```
-VERSION = "6.8.0-114.114"
-GIT_TAG = "Ubuntu-6.8.0-114.114"
-```
-
-**Step 3 — Clone from Launchpad git at that tag**
+**Clone step (both paths):**
 
 ```bash
-git clone --depth=1 --branch Ubuntu-6.8.0-114.114 \
-  https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/noble
+git clone --depth=1 --branch Ubuntu-<version> <git_url>
 ```
 
 The git repository has the **complete** `debian/` directory including
@@ -433,19 +488,21 @@ Ubuntu kernel versions follow `X.Y.Z-A.B`:
 | `A` | `114` | ABI number |
 | `B` | `114` | Upload number |
 
-Tags use `<suite>-X.Y.Z-A.B`, e.g. `noble-6.8.0-114.114`.
+Tags use `<suite>-X.Y.Z-A.B`, e.g. `resolute-qcom-7.0.0-5.5`.
 
 ---
 
 ## Supported suites
 
-| Suite | Codename | Status | Kernel |
+Official Ubuntu suites supported by this pipeline:
+
+| Suite | Codename | Ubuntu | Kernel |
 |-------|----------|--------|--------|
 | `noble` | Noble Numbat | 24.04 LTS — **active** | 6.8 |
-| `questing` | Questing Quokka | 25.10 — **active** (daily default) | 6.17 |
+| `questing` | Questing Quokka | 25.10 — **active** | 6.17 |
 | `resolute` | Resolute Ringtail | 26.04 LTS — **active** | 7.0 |
 
-To add a new suite, trigger `fetch-source-pkg.yml` with the desired
+To sync an official suite, trigger `fetch-source-pkg.yml` with the desired
 `suite` input — the branch and release tag are created automatically:
 
 ```bash
@@ -453,6 +510,22 @@ gh workflow run fetch-source-pkg.yml \
   --repo qualcomm-linux/pkg-linux-qcom-canonical \
   --field suite=resolute
 ```
+
+## Custom branches
+
+In addition to official Ubuntu suites, this repo supports custom branches
+that track non-upstream kernel repositories. Custom branches use a
+`<base_suite>-<suffix>` naming convention so the base suite can be derived
+automatically for Docker container selection.
+
+| Branch | Base suite | Source | Daily default |
+|--------|-----------|--------|---------------|
+| `resolute-qcom` | `resolute` | `https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute` | ✅ yes |
+
+Custom branches are **not** Ubuntu suite names — they are branch names in
+this repository that happen to be based on a particular Ubuntu suite's kernel.
+The `suite` input in both workflows accepts either an official suite name or
+a custom branch name.
 
 ---
 
