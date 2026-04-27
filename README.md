@@ -263,9 +263,9 @@ and commits it to the branch.
 
 | Input | Default | Description |
 |-------|---------|-------------|
-| `suite` | `resolute-qcom` | Branch name to sync into (e.g. `noble`, `questing`, `resolute`, `resolute-qcom`). Becomes the branch and tag prefix in this repo. The base suite (`resolute`) is derived automatically from the first component for Docker container selection. |
+| `suite` *(branch name)* | `resolute-qcom` | Branch to sync into (e.g. `noble`, `questing`, `resolute`, `resolute-qcom`). Becomes the branch and tag prefix in this repo. The base Ubuntu suite (`resolute`) is derived automatically from the first component for Docker container selection. Note: the parameter is named `suite` for historical reasons but accepts any branch name. |
 | `force` | `false` | Re-sync even if tag already exists |
-| `custom_git_url` | `https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute` | Custom Launchpad git URL to clone from. Defaults to the Ubuntu-qcom Launchpad repository. When set, the Launchpad REST API is bypassed — the latest `Ubuntu-qcom-*` tag is discovered directly from the repo via `git ls-remote`. |
+| `custom_git_url` | `https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute` | Custom Launchpad git URL to clone from. Defaults to the Ubuntu-qcom Launchpad repository. Clear this field to sync an official Ubuntu suite via the Launchpad REST API. When set, the latest `Ubuntu-qcom-*` tag is discovered directly from the repo via `git ls-remote`. |
 
 **Jobs**:
 
@@ -293,7 +293,7 @@ manually via `Actions → Build: Canonical Kernel .deb Packages → Run workflow
 
 | Input | Default | Description |
 |-------|---------|-------------|
-| `suite` | `resolute-qcom` | Branch to build from (e.g. `noble`, `questing`, `resolute`, `resolute-qcom`). The base suite is derived automatically for Docker container selection. |
+| `suite` *(branch name)* | `resolute-qcom` | Branch to build from (e.g. `noble`, `questing`, `resolute`, `resolute-qcom`). The base Ubuntu suite is derived automatically for Docker container selection. Note: the parameter is named `suite` for historical reasons but accepts any branch name. |
 | `kernel_version` | — | Version string for release asset attachment |
 | `arch` | `arm64` | Target architecture |
 | `flavor` | `generic` | Kernel flavour: `generic`, `lowlatency`, or `all` |
