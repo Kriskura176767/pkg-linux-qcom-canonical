@@ -159,8 +159,8 @@ pkg-linux-qcom-canonical
 │
 ├── main branch
 │   ├── .github/workflows/
-│   │   ├── fetch-source-pkg.yml   ← sync Launchpad sources → suite branch
-│   │   └── build-kernel.yml       ← build .deb packages from suite branch
+│   │   ├── fetch-source-pkg.yml   ← sync Launchpad sources → branch
+│   │   └── build-kernel.yml       ← build .deb packages from branch
 │   ├── scripts/
 │   │   ├── check-version.sh       ← query latest version from Launchpad
 │   │   ├── fetch-source-pkg.sh    ← download source package files
@@ -253,7 +253,7 @@ the authoritative source of version information for this repository.
 Queries the git repository for the latest `Ubuntu-*` tag (resolute-qcom, daily
 default) or the Launchpad REST API (official suites), then clones the source
 tree at the corresponding tag to get the complete source including `debian/rules`,
-and commits it to the suite branch.
+and commits it to the branch.
 
 **Schedule**: daily at **04:00 UTC**  
 **Manual trigger**: `Actions → Sync: Canonical Kernel Sources to Branch → Run workflow`  
@@ -272,7 +272,7 @@ and commits it to the suite branch.
 | Job | What it does |
 |-----|-------------|
 | `check-version` | For resolute-qcom: queries tags via `git ls-remote` on the custom repo. For official suites: queries Launchpad API (`ws.size=300`). Checks tag existence; sets `should_sync` flag. |
-| `sync` | Frees disk space; `git clone --depth=1 --branch Ubuntu-<version>` from the resolved git URL; verifies >5000 files; commits to suite branch; creates tag |
+| `sync` | Frees disk space; `git clone --depth=1 --branch Ubuntu-<version>` from the resolved git URL; verifies >5000 files; commits to branch; creates tag |
 | `trigger-build` | Dispatches `build-kernel.yml` with `suite`, `kernel_version`, `arch=arm64`, `flavor=generic` |
 
 **Idempotent**: if the tag for the latest version already exists, the workflow exits cleanly without downloading anything.
@@ -281,7 +281,7 @@ and commits it to the suite branch.
 
 ### `build-kernel.yml` — Build .deb packages
 
-Checks out the suite branch (full kernel source tree) and builds `.deb`
+Checks out the branch (full kernel source tree) and builds `.deb`
 packages inside the base-suite-matched `ghcr.io/qualcomm-linux/pkg-builder:<base_suite>`
 container using `fakeroot debian/rules binary-<flavor>`.
 
@@ -316,9 +316,9 @@ The scheduled daily sync always dispatches with `runner=ubuntu-24.04-arm`. The `
 
 **Build steps**:
 1. Free up disk space (~10 GB)
-2. Checkout suite branch → `kernel-src/`
+2. Checkout branch → `kernel-src/`
 3. Checkout `qualcomm-linux/docker-pkg-build@main` → `docker-pkg-build/`
-4. Derive `BASE_SUITE` from suite (e.g. `resolute-qcom` → `resolute`)
+4. Derive `BASE_SUITE` from branch name (e.g. `resolute-qcom` → `resolute`)
 5. Build docker image: `docker_deb_build.py --rebuild -d <base_suite>`
 6. Run build inside `ghcr.io/qualcomm-linux/pkg-builder:<base_suite>` container:
    ```
@@ -335,7 +335,7 @@ The scheduled daily sync always dispatches with `runner=ubuntu-24.04-arm`. The `
 |----------|---------------|-----------|-------|
 | **S3** | `s3://qli-prd-lecore-gh-artifacts/<org>/pkg/temp/<repo>/<run-id>/` | Permanent | Self-hosted runner only; skipped gracefully on GitHub-hosted |
 | **GitHub Actions artifact** | Actions → workflow run → *Artifacts* | 90 days | Always available |
-| **GitHub Release asset** | Releases → `<suite>-X.Y.Z-A.B` → Assets | Permanent | Attached when `kernel_version` is provided |
+| **GitHub Release asset** | Releases → `<branch>-X.Y.Z-A.B` → Assets | Permanent | Attached when `kernel_version` is provided |
 
 ---
 
