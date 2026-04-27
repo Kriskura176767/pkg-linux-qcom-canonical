@@ -265,7 +265,7 @@ and commits it to the branch.
 |-------|---------|-------------|
 | `suite` *(branch name)* | `resolute-qcom` | Branch to sync into (e.g. `noble`, `questing`, `resolute`, `resolute-qcom`). Becomes the branch and tag prefix in this repo. The base Ubuntu suite (`resolute`) is derived automatically from the first component for Docker container selection. Note: the parameter is named `suite` for historical reasons but accepts any branch name. |
 | `force` | `false` | Re-sync even if tag already exists |
-| `custom_git_url` | `https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute` | Custom Launchpad git URL to clone from. Defaults to the Ubuntu-qcom Launchpad repository. Clear this field to sync an official Ubuntu suite via the Launchpad REST API. When set, the latest `Ubuntu-qcom-*` tag is discovered directly from the repo via `git ls-remote`. |
+| `custom_git_url` | *(empty)* | Custom Launchpad git URL to clone from. **Leave empty** to sync an official Ubuntu suite (noble, questing, resolute) via the Launchpad REST API. Fill in the Ubuntu-qcom Launchpad repository URL for resolute-qcom builds. Scheduled runs always use the Ubuntu-qcom repo automatically regardless of this field. |
 
 **Jobs**:
 

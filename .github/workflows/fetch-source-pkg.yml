@@ -52,12 +52,14 @@ on:
         default: false
       custom_git_url:
         description: >
-          Custom Launchpad git URL to clone from. Defaults to the Ubuntu-qcom
-          Launchpad repository. Clear this field to sync an official Ubuntu
-          suite (noble, questing, resolute) from the upstream Ubuntu kernel repo.
+          Custom Launchpad git URL to clone from. Leave empty to sync an
+          official Ubuntu suite (noble, questing, resolute) from the upstream
+          Ubuntu kernel repo via the Launchpad REST API. Fill in the
+          Ubuntu-qcom Launchpad repository URL for resolute-qcom builds.
+          Scheduled runs always use the Ubuntu-qcom repo automatically.
           Example: https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute
         required: false
-        default: "https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute"
+        default: ""
         type: string
 
 permissions:
