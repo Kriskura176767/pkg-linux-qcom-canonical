@@ -2,11 +2,11 @@
 #
 # build-kernel.yml
 #
-# Builds Ubuntu kernel .deb packages from a suite branch
-# (e.g. "noble") that was populated by fetch-source-pkg.yml.
+# Builds Ubuntu kernel .deb packages from a branch
+# (e.g. "noble", "resolute-qcom") that was populated by fetch-source-pkg.yml.
 #
-# The build always runs inside the suite-matched
-# ghcr.io/qualcomm-linux/pkg-builder:<suite> container via
+# The build always runs inside the base-suite-matched
+# ghcr.io/qualcomm-linux/pkg-builder:<base_suite> container via
 # docker-pkg-build, ensuring a clean, reproducible environment
 # that exactly matches the target distro.
 #
@@ -21,11 +21,11 @@ on:
     inputs:
       suite:
         description: >
-          Suite branch to build from (e.g. noble, questing, resolute,
+          Branch to build from (e.g. noble, questing, resolute,
           resolute-qcom). The base suite (e.g. resolute) is derived
           automatically for Docker container selection.
         required: true
-        default: "questing"
+        default: "resolute-qcom"
         type: string
       kernel_version:
         description: "Kernel version string (e.g. 6.8.0-51.52) – used for release asset attachment"
@@ -75,7 +75,7 @@ jobs:
     timeout-minutes: 360
 
     env:
-      SUITE:   ${{ inputs.suite   || 'questing' }}
+      SUITE:   ${{ inputs.suite   || 'resolute-qcom' }}
       ARCH:    ${{ inputs.arch    || 'arm64' }}
       FLAVOR:  ${{ inputs.flavor  || 'generic' }}
 
@@ -163,7 +163,7 @@ jobs:
       - name: Checkout kernel source
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.kernel_version != '' && format('{0}-{1}', inputs.suite || 'questing', inputs.kernel_version) || inputs.suite || 'questing' }}
+          ref: ${{ inputs.kernel_version != '' && format('{0}-{1}', inputs.suite || 'resolute-qcom', inputs.kernel_version) || inputs.suite || 'resolute-qcom' }}
           path: kernel-src
 
       # -----------------------------------------------------------------------
@@ -181,7 +181,7 @@ jobs:
       #    Uses BASE_SUITE (e.g. resolute) not SUITE (e.g. resolute-qcom)
       #    because pkg-builder images are tagged by Ubuntu distro name only.
       # -----------------------------------------------------------------------
-      - name: Build docker image for suite (${{ inputs.suite || 'questing' }})
+      - name: Build docker image for suite (${{ inputs.suite || 'resolute-qcom' }})
         run: |
           ./docker-pkg-build/docker_deb_build.py --rebuild -d "${BASE_SUITE}"
           docker image ls
@@ -190,7 +190,7 @@ jobs:
       # 7. Build kernel packages inside the suite-matched container
       #    The workspace is bind-mounted so output .deb files land on the host.
       # -----------------------------------------------------------------------
-      - name: Build kernel packages (ghcr.io/qualcomm-linux/pkg-builder:${{ inputs.suite || 'questing' }})
+      - name: Build kernel packages (ghcr.io/qualcomm-linux/pkg-builder:${{ inputs.suite || 'resolute-qcom' }})
         run: |
           JOBS=$(nproc)
           if [ "${FLAVOR}" = "all" ]; then TARGET="binary"; else TARGET="binary-${FLAVOR}"; fi
@@ -360,7 +360,7 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
           echo "|-------|-------|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Suite        | \`${SUITE}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Branch       | \`${SUITE}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Architecture | \`${ARCH}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Flavour      | \`${FLAVOR}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Container    | \`ghcr.io/qualcomm-linux/pkg-builder:${BASE_SUITE}\` |" >> "$GITHUB_STEP_SUMMARY"
