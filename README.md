@@ -214,7 +214,7 @@ suite branch.
 
 | Input | Default | Description |
 |-------|---------|-------------|
-| `suite` | `questing` | Ubuntu suite to sync — one suite per run |
+| `suite` | `questing` | Ubuntu branch name to sync into (e.g. `noble`, `questing`, `resolute`, `resolute-qcom`). Becomes the branch and tag prefix in this repo. The base suite (`resolute`) is derived automatically from the first component for Launchpad API queries and Docker container selection. |
 | `force` | `false` | Re-sync even if tag already exists |
 | `custom_git_url` | *(empty)* | Custom Launchpad git URL to clone from instead of the official Ubuntu kernel repo. When set, the Launchpad REST API is bypassed — the latest `Ubuntu-*` tag is discovered directly from the custom repo via `git ls-remote`. Leave empty for default behaviour. |
 
@@ -244,7 +244,7 @@ manually via `Actions → Build: Canonical Kernel .deb Packages → Run workflow
 
 | Input | Default | Description |
 |-------|---------|-------------|
-| `suite` | `questing` | Suite branch to build from |
+| `suite` | `questing` | Suite branch to build from (e.g. `noble`, `questing`, `resolute`, `resolute-qcom`). The base suite is derived automatically for Docker container selection. |
 | `kernel_version` | — | Version string for release asset attachment |
 | `arch` | `arm64` | Target architecture |
 | `flavor` | `generic` | Kernel flavour: `generic`, `lowlatency`, or `all` |

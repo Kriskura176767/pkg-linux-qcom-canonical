@@ -35,7 +35,12 @@ on:
   workflow_dispatch:
     inputs:
       suite:
-        description: "Ubuntu suite to sync (e.g. noble, questing, resolute)"
+        description: >
+          Ubuntu branch name to sync into (e.g. noble, questing, resolute,
+          resolute-qcom). This becomes the branch and tag prefix in this repo.
+          When using a custom_git_url with a team-specific suffix (e.g.
+          resolute-qcom), the base suite (resolute) is derived automatically
+          for Launchpad API queries and Docker container selection.
         required: false
         default: "questing"
         type: string
@@ -67,6 +72,7 @@ jobs:
       upstream_version: ${{ steps.query.outputs.upstream_version }}
       tag:              ${{ steps.query.outputs.tag }}
       suite:            ${{ steps.query.outputs.suite }}
+      base_suite:       ${{ steps.query.outputs.base_suite }}
       source:           ${{ steps.query.outputs.source }}
       git_url:          ${{ steps.query.outputs.git_url }}
       should_sync:      ${{ steps.gate.outputs.should_sync }}
@@ -82,6 +88,13 @@ jobs:
           SOURCE:         ${{ vars.KERNEL_SOURCE || 'linux' }}
           CUSTOM_GIT_URL: ${{ inputs.custom_git_url || '' }}
         run: |
+          # Derive the base Ubuntu suite by stripping any custom suffix.
+          # e.g. resolute-qcom → resolute, noble → noble, questing → questing
+          # Used for Launchpad API queries and default git URL construction.
+          BASE_SUITE=$(echo "${SUITE}" | cut -d'-' -f1)
+          echo "Suite      : ${SUITE}"
+          echo "Base suite : ${BASE_SUITE}"
+
           if [ -n "${CUSTOM_GIT_URL}" ]; then
             # ----------------------------------------------------------------
             # Custom repo path: find the latest Ubuntu-* tag via git ls-remote.
@@ -117,7 +130,7 @@ jobs:
             API="https://api.launchpad.net/1.0/ubuntu/+archive/primary"
             API+="?ws.op=getPublishedSources"
             API+="&source_name=${SOURCE}"
-            API+="&distro_series=/ubuntu/${SUITE}"
+            API+="&distro_series=/ubuntu/${BASE_SUITE}"
             API+="&status=Published"
             API+="&order_by_date=true"
             API+="&ws.size=300"
@@ -133,7 +146,7 @@ jobs:
               exit 1
             }
 
-            GIT_URL="https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/${SUITE}"
+            GIT_URL="https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/${BASE_SUITE}"
           fi
 
           UPSTREAM=$(echo "${VERSION}" | cut -d'-' -f1)
@@ -143,10 +156,10 @@ jobs:
           echo "upstream_version=${UPSTREAM}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG}"                   >> "$GITHUB_OUTPUT"
           echo "suite=${SUITE}"               >> "$GITHUB_OUTPUT"
+          echo "base_suite=${BASE_SUITE}"     >> "$GITHUB_OUTPUT"
           echo "source=${SOURCE}"             >> "$GITHUB_OUTPUT"
           echo "git_url=${GIT_URL}"           >> "$GITHUB_OUTPUT"
 
-          echo "Suite   : ${SUITE}"
           echo "Version : ${VERSION}"
           echo "Tag     : ${TAG}"
           echo "Git URL : ${GIT_URL}"

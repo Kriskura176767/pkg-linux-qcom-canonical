@@ -20,7 +20,10 @@ on:
   workflow_dispatch:
     inputs:
       suite:
-        description: "Suite branch to build from (e.g. noble, questing, resolute)"
+        description: >
+          Suite branch to build from (e.g. noble, questing, resolute,
+          resolute-qcom). The base suite (e.g. resolute) is derived
+          automatically for Docker container selection.
         required: true
         default: "questing"
         type: string
@@ -108,6 +111,17 @@ jobs:
           echo "REPO_NAME=${GITHUB_REPOSITORY#*/}"  >> "$GITHUB_ENV"
 
       # -----------------------------------------------------------------------
+      # 2b. Derive base suite for Docker container selection.
+      #     Strips any custom suffix so the correct pkg-builder image is used.
+      #     e.g. resolute-qcom → resolute, noble → noble, questing → questing
+      # -----------------------------------------------------------------------
+      - name: Derive base suite for Docker
+        run: |
+          BASE_SUITE=$(echo "${SUITE}" | cut -d'-' -f1)
+          echo "BASE_SUITE=${BASE_SUITE}" >> "$GITHUB_ENV"
+          echo "Suite: ${SUITE}  →  Base suite: ${BASE_SUITE}"
+
+      # -----------------------------------------------------------------------
       # 3. Validate kernel_version against existing tags (fail fast)
       #    Must run BEFORE checkout so a bad version fails immediately with a
       #    clear error rather than a cryptic git "ref not found" from checkout.
@@ -163,11 +177,13 @@ jobs:
           path: docker-pkg-build
 
       # -----------------------------------------------------------------------
-      # 6. Build the suite-matched pkg-builder docker image
+      # 6. Build the base-suite-matched pkg-builder docker image.
+      #    Uses BASE_SUITE (e.g. resolute) not SUITE (e.g. resolute-qcom)
+      #    because pkg-builder images are tagged by Ubuntu distro name only.
       # -----------------------------------------------------------------------
       - name: Build docker image for suite (${{ inputs.suite || 'questing' }})
         run: |
-          ./docker-pkg-build/docker_deb_build.py --rebuild -d "${SUITE}"
+          ./docker-pkg-build/docker_deb_build.py --rebuild -d "${BASE_SUITE}"
           docker image ls
 
       # -----------------------------------------------------------------------
@@ -179,7 +195,7 @@ jobs:
           JOBS=$(nproc)
           if [ "${FLAVOR}" = "all" ]; then TARGET="binary"; else TARGET="binary-${FLAVOR}"; fi
 
-          echo "Building: suite=${SUITE}  target=${TARGET}  arch=${ARCH}  jobs=${JOBS}"
+          echo "Building: suite=${SUITE}  base_suite=${BASE_SUITE}  target=${TARGET}  arch=${ARCH}  jobs=${JOBS}"
 
           # IMPORTANT: use single quotes for bash -c so the outer shell does NOT
           # expand $(...) or ${VAR} before passing the string to docker.
@@ -191,7 +207,7 @@ jobs:
             -e JOBS="${JOBS}" \
             -e TARGET="${TARGET}" \
             -e WS="${GITHUB_WORKSPACE}" \
-            "ghcr.io/qualcomm-linux/pkg-builder:${SUITE}" \
+            "ghcr.io/qualcomm-linux/pkg-builder:${BASE_SUITE}" \
             bash -c '
               set -euo pipefail
 
@@ -347,7 +363,7 @@ jobs:
           echo "| Suite        | \`${SUITE}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Architecture | \`${ARCH}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Flavour      | \`${FLAVOR}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Container    | \`ghcr.io/qualcomm-linux/pkg-builder:${SUITE}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Container    | \`ghcr.io/qualcomm-linux/pkg-builder:${BASE_SUITE}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Runner       | \`${{ runner.name }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "### Built packages" >> "$GITHUB_STEP_SUMMARY"
