@@ -2,15 +2,14 @@
 #
 # fetch-source-pkg.yml
 #
-# Mirrors the Canonical Ubuntu kernel from the Launchpad git repository into
-# a branch of this repo, preserving the upstream git history.
+# Syncs the Canonical Ubuntu kernel from the Launchpad git repository into
+# a branch of this repo, building an incremental commit history of syncs.
 #
-# Approach: git clone --depth=1 + push (Canonical commit hash preserved)
-#   Clones the exact Canonical commit at the version tag (--depth=1) and
-#   pushes it directly to GitHub — no rsync, no extra commit. The branch
-#   tip has the same hash as Canonical's commit, so PRs raised on top will
-#   apply cleanly on Canonical's branch via git cherry-pick.
-#   Full history push exceeds GitHub's 2GB push limit for large repos.
+# Approach: shallow clone + rsync + incremental commit
+#   git clone --depth=1 fetches exactly one commit from Launchpad — reliably
+#   served without triggering rate limits or 503 errors. Each sync adds a
+#   commit to our branch showing exactly what changed between kernel versions.
+#   git diff between any two of our tags shows the precise delta.
 #
 # Why git instead of the source package?
 #   The Ubuntu kernel source package (format 1.0) ships only debian.master/
@@ -205,28 +204,6 @@ jobs:
             echo "Tag '${TAG}' not found – will sync"
           fi
 
-  # ============================================================================
-  # sync job
-  #
-  # Approach: git clone --depth=1 + push (Canonical commit hash preserved)
-  #
-  #   1. git clone --depth=1 --branch <tag> from Launchpad
-  #      Fetches exactly the Canonical commit at the version tag.
-  #      --depth=1 is the only depth that works end-to-end:
-  #        full clone  → GitHub push fails (HTTP 500, exceeds 2GB limit)
-  #        --depth=N>1 → GitHub push fails (cannot resolve shallow parents)
-  #        --depth=1   → works (single root commit, no parent to resolve)
-  #   2. Add our GitHub repo as a remote
-  #   3. Create our branch at the cloned HEAD (Canonical's actual commit)
-  #   4. Add our scoped tag on the same commit
-  #   5. Push branch + tag to GitHub (--force for mirror semantics)
-  #
-  # Key property: the branch tip has the SAME commit hash as Canonical's
-  # branch. PRs raised on top will apply cleanly on Canonical's branch
-  # via git cherry-pick — the parent commit is identical.
-  # git diff <tag1> <tag2> compares the two source trees and shows exactly
-  # what Canonical changed between releases.
-  # ============================================================================
   sync:
     name: "Sync ${{ needs.check-version.outputs.suite }} sources to branch"
     runs-on: ubuntu-24.04-arm
@@ -269,10 +246,41 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends curl jq
+          sudo apt-get install -y --no-install-recommends \
+            curl jq rsync
 
       # -----------------------------------------------------------------------
-      # 3. Configure git identity
+      # 3. Clone from the resolved git URL at the version tag.
+      #    GIT_URL is either the custom repo URL (when custom_git_url input
+      #    was provided) or the standard Launchpad URL for the suite.
+      #    GIT_TAG_PREFIX determines the tag format:
+      #      Ubuntu-qcom → Ubuntu-qcom-7.0.0-1003.3  (resolute-qcom repo)
+      #      Ubuntu      → Ubuntu-6.8.0-114.114       (official repos)
+      # -----------------------------------------------------------------------
+      - name: Clone from git repo at version tag
+        run: |
+          GIT_TAG="${GIT_TAG_PREFIX}-${VERSION}"
+
+          echo "Cloning ${GIT_URL} at tag ${GIT_TAG} (shallow)..."
+          git clone --depth=1 --branch "${GIT_TAG}" "${GIT_URL}" kernel-src/
+
+          echo "SRC_DIR=kernel-src" >> "$GITHUB_ENV"
+
+          FILE_COUNT=$(find kernel-src/ -type f | wc -l)
+          echo "Cloned ${FILE_COUNT} files"
+          [ "${FILE_COUNT}" -gt 5000 ] || {
+            echo "ERROR: Too few files cloned (${FILE_COUNT})"
+            exit 1
+          }
+
+          echo "Top-level contents:"
+          ls kernel-src/
+
+          echo "debian/ contents:"
+          ls kernel-src/debian/ | head -20
+
+      # -----------------------------------------------------------------------
+      # 4. Configure git
       # -----------------------------------------------------------------------
       - name: Configure git identity
         run: |
@@ -280,105 +288,79 @@ jobs:
           git config --global user.name  "github-actions[bot]"
 
       # -----------------------------------------------------------------------
-      # 4. Clone from Launchpad and push to GitHub
-      #
-      #    git clone is reliably served by Launchpad (same as local usage).
-      #    git fetch --update-shallow into an existing repo uses a different
-      #    protocol path that Launchpad's servers handle poorly (503 errors).
-      #
-      #    Strategy:
-      #      • Full git clone --branch <tag> from Launchpad (no --depth)
-      #      • Add our GitHub repo as a remote
-      #      • Create our branch at the cloned HEAD
-      #      • Add our scoped tag on the same commit
-      #      • Push branch + tag to GitHub
+      # 5. Prepare the suite branch
       # -----------------------------------------------------------------------
-      - name: Clone from Launchpad and push to GitHub
+      - name: Clone repository for suite branch update
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
-
-          GIT_TAG="${GIT_TAG_PREFIX}-${VERSION}"
           REPO_URL="https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
-          MAX_RETRIES=3
-          RETRY_DELAY=30
+          git clone "${REPO_URL}" suite-repo
 
-          # ------------------------------------------------------------------
-          # Clone from Launchpad at the version tag with --depth=1.
-          # Fetches exactly the Canonical commit — no extra history.
-          # --depth=1 is the only value that works end-to-end with GitHub:
-          #   full clone  → HTTP 500 on push (exceeds GitHub's 2GB limit)
-          #   --depth=N>1 → push rejected (cannot resolve shallow parents)
-          #   --depth=1   → works (single root commit, no parent to resolve)
-          # Retry up to 3× with 30s back-off for transient failures.
-          # ------------------------------------------------------------------
-          echo "=== Cloning from Launchpad (depth=1) ==="
+      - name: Check out or create suite branch
+        run: |
+          cd suite-repo
 
-          for attempt in $(seq 1 ${MAX_RETRIES}); do
-            echo "Clone attempt ${attempt}/${MAX_RETRIES}..."
-            if git clone --depth=1 --branch "${GIT_TAG}" "${GIT_URL}" kernel-src/; then
-              echo "✓ Clone succeeded on attempt ${attempt}"
-              break
-            fi
-            rm -rf kernel-src/
-            if [ "${attempt}" -lt "${MAX_RETRIES}" ]; then
-              echo "Clone failed — retrying in ${RETRY_DELAY}s..."
-              sleep "${RETRY_DELAY}"
-            else
-              echo "ERROR: Clone failed after ${MAX_RETRIES} attempts" >&2
-              exit 1
-            fi
-          done
-          cd kernel-src
+          if git ls-remote --exit-code origin "refs/heads/${SUITE}" >/dev/null 2>&1; then
+            echo "Branch '${SUITE}' exists – checking out"
+            git checkout "${SUITE}"
+            git rm -rf --quiet . 2>/dev/null || true
+          else
+            echo "Branch '${SUITE}' does not exist – creating orphan branch"
+            git checkout --orphan "${SUITE}"
+            git rm -rf --quiet . 2>/dev/null || true
+          fi
 
-          CANONICAL_COMMIT=$(git rev-parse HEAD)
-          echo "Upstream commit  : ${CANONICAL_COMMIT}"
-          echo "Upstream tag     : ${GIT_TAG}"
+      - name: Populate suite branch with cloned source
+        run: |
+          echo "Copying source tree from ${SRC_DIR} → suite-repo/"
+          rsync -a --delete \
+            --exclude='.git' \
+            "${SRC_DIR}/" suite-repo/
 
-          # ------------------------------------------------------------------
-          # Verify the source tree
-          # ------------------------------------------------------------------
-          FILE_COUNT=$(find . -not -path './.git*' -type f | wc -l)
-          echo "Files: ${FILE_COUNT}"
-          [ "${FILE_COUNT}" -gt 5000 ] || {
-            echo "ERROR: Too few files (${FILE_COUNT}) — expected >5000"
+          COPIED=$(find suite-repo/ -type f | wc -l)
+          echo "Files in suite-repo after rsync: ${COPIED}"
+          [ "${COPIED}" -gt 5000 ] || {
+            echo "ERROR: rsync copied only ${COPIED} files"
             exit 1
           }
 
-          echo "Top-level contents:"
-          ls
+          cd suite-repo
 
-          echo "debian/ contents:"
-          ls debian/ 2>/dev/null | head -20 \
-            || echo "(debian/ not found at root — may be in a subdirectory)"
+          SYNC_DATE=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+          printf '%s\n\n%s\n%s\n%s\n%s\n%s\n' \
+            "${SUITE}: ${VERSION}" \
+            "Branch         : ${SUITE}" \
+            "Kernel version : ${VERSION}" \
+            "Upstream       : ${UPSTREAM_VERSION}" \
+            "Source         : ${GIT_URL} (tag: ${GIT_TAG_PREFIX}-${VERSION})" \
+            "Synced         : ${SYNC_DATE}" \
+            > /tmp/commit-msg.txt
 
-          # ------------------------------------------------------------------
-          # Add our GitHub repo as a remote
-          # ------------------------------------------------------------------
-          git remote add github "${REPO_URL}"
+          git add --all
 
-          # ------------------------------------------------------------------
-          # Create our branch at the current HEAD (Canonical's commit)
-          # and add our scoped tag on the same commit.
-          # ------------------------------------------------------------------
-          git checkout -b "${SUITE}"
+          if git diff --cached --quiet; then
+            echo "No changes to commit – branch already has this content"
+          else
+            git commit -F /tmp/commit-msg.txt
+            echo "Committed ${SUITE} branch at $(git rev-parse HEAD)"
+          fi
+
+      - name: Tag the commit
+        run: |
+          cd suite-repo
           git tag -fa "${TAG}" -m "${SUITE} kernel ${VERSION}"
-          echo "Tagged: ${TAG} → $(git rev-parse HEAD)"
+          echo "Tagged: ${TAG}"
 
-          # ------------------------------------------------------------------
-          # Push branch and tag to GitHub.
-          # --force: safe for a mirror — we always move to a newer upstream tag.
-          # --no-thin: send all objects explicitly; thin packs fail when GitHub
-          #   does not have the expected base objects for delta resolution.
-          # ------------------------------------------------------------------
-          echo "=== Pushing ==="
-          git push --force --no-thin github "${SUITE}"
-          git push --force --no-thin github "${TAG}"
+      - name: Push suite branch and tag
+        run: |
+          cd suite-repo
+          git push origin "${SUITE}"
+          git push --force origin "${TAG}"
           echo "Pushed branch '${SUITE}' and tag '${TAG}'"
 
       # -----------------------------------------------------------------------
-      # 5. Summary
+      # 6. Summary
       # -----------------------------------------------------------------------
       - name: Print summary
         if: always()
@@ -393,8 +375,8 @@ jobs:
           echo "| Version     | \`${VERSION}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Branch ref  | [\`${SUITE}\`](https://github.com/${{ github.repository }}/tree/${SUITE}) |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Tag         | [\`${TAG}\`](https://github.com/${{ github.repository }}/releases/tag/${TAG}) |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Upstream    | \`${GIT_URL}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Upstream tag| \`${GIT_TAG}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Cloned from | \`${GIT_URL}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Git tag     | \`${GIT_TAG}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Launchpad   | https://launchpad.net/ubuntu/${SUITE}/+source/${SOURCE}/${VERSION} |" >> "$GITHUB_STEP_SUMMARY"
 
   trigger-build:
