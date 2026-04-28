@@ -317,19 +317,37 @@ jobs:
           git remote -v
 
           # ------------------------------------------------------------------
-          # Fetch the upstream tag with its complete ancestry.
+          # Fetch the upstream tag with its ancestry.
           #
-          # No --depth: the full Canonical history is preserved in our branch.
-          # The first sync fetches the complete history; subsequent syncs are
-          # incremental — only commits reachable from the new tag that are not
-          # already present locally are transferred.
+          # --depth=200: fetches the last 200 commits of history, which covers
+          # several months of kernel development — enough for meaningful diffs
+          # between versions without overloading Launchpad's git servers.
+          # Subsequent syncs use --update-shallow to extend the shallow boundary
+          # to include new commits while reusing already-fetched objects.
           #
-          # The refspec  refs/tags/<tag>:refs/tags/<tag>  fetches the tag
-          # object itself in addition to the commit it points to, so the tag
-          # is available locally for checkout and verification.
+          # Retry up to 3 times with a 30-second back-off to handle transient
+          # Launchpad 503 / RPC errors.
           # ------------------------------------------------------------------
           echo "=== Fetching ${GIT_TAG} from ${GIT_URL} ==="
-          git fetch launchpad "refs/tags/${GIT_TAG}:refs/tags/${GIT_TAG}"
+          FETCH_DEPTH=200
+          MAX_RETRIES=3
+          RETRY_DELAY=30
+
+          for attempt in $(seq 1 ${MAX_RETRIES}); do
+            echo "Fetch attempt ${attempt}/${MAX_RETRIES} (depth=${FETCH_DEPTH})..."
+            if git fetch --depth="${FETCH_DEPTH}" --update-shallow \
+                 launchpad "refs/tags/${GIT_TAG}:refs/tags/${GIT_TAG}"; then
+              echo "✓ Fetch succeeded on attempt ${attempt}"
+              break
+            fi
+            if [ "${attempt}" -lt "${MAX_RETRIES}" ]; then
+              echo "Fetch failed — retrying in ${RETRY_DELAY}s..."
+              sleep "${RETRY_DELAY}"
+            else
+              echo "ERROR: Fetch failed after ${MAX_RETRIES} attempts" >&2
+              exit 1
+            fi
+          done
 
           CANONICAL_COMMIT=$(git rev-parse "${GIT_TAG}")
           echo "Upstream commit  : ${CANONICAL_COMMIT}"
