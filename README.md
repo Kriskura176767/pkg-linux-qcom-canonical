@@ -63,7 +63,7 @@ SCHEDULE: daily 04:00 UTC  ·  RUNNER: ubuntu-24.04-arm
 ║  │                                                                      │ ║
 ║  │  apt-get build-dep linux                                             │ ║
 ║  │  fakeroot make -f debian/rules clean            ← setup env         │ ║
-║  │  fakeroot debian/rules binary-generic do_skip_checks=true           │ ║
+║  │  fakeroot debian/rules binary-qcom do_skip_checks=true              │ ║
 ║  └──────────────────────────────────────────────────────────────────────┘ ║
 ║                                                                            ║
 ║  Collect .deb files  ──▶  output/                                         ║
@@ -182,7 +182,7 @@ pkg-linux-qcom-canonical
         e.g. questing, resolute
 ```
 
-Suite branches are **orphan branches** — they share no history with `main`
+All branches are **orphan branches** — they share no history with `main`
 and contain only the extracted kernel source tree.
 
 ---
@@ -273,7 +273,7 @@ and commits it to the branch.
 |-----|-------------|
 | `check-version` | For resolute-qcom: queries tags via `git ls-remote` on the custom repo. For official suites: queries Launchpad API (`ws.size=300`). Checks tag existence; sets `should_sync` flag. |
 | `sync` | Frees disk space; `git clone --depth=1 --branch Ubuntu-<version>` from the resolved git URL; verifies >5000 files; commits to branch; creates tag |
-| `trigger-build` | Dispatches `build-kernel.yml` with `suite`, `kernel_version`, `arch=arm64`, `flavor=generic` |
+| `trigger-build` | Dispatches `build-kernel.yml` with `suite`, `kernel_version`, `arch=arm64`, `flavor=qcom` (for custom branches) or `flavor=generic` (for official suites) |
 
 **Idempotent**: if the tag for the latest version already exists, the workflow exits cleanly without downloading anything.
 
@@ -296,7 +296,7 @@ manually via `Actions → Build: Canonical Kernel .deb Packages → Run workflow
 | `suite` *(branch name)* | `resolute-qcom` | Branch to build from (e.g. `noble`, `questing`, `resolute`, `resolute-qcom`). The base Ubuntu suite is derived automatically for Docker container selection. Note: the parameter is named `suite` for historical reasons but accepts any branch name. |
 | `kernel_version` | — | Version string for release asset attachment |
 | `arch` | `arm64` | Target architecture |
-| `flavor` | `generic` | Kernel flavour: `generic`, `lowlatency`, or `all` |
+| `flavor` | `qcom` | Kernel flavour: `qcom` (default for resolute-qcom), `generic`, `lowlatency`, or `all` |
 | `runner` | `ubuntu-24.04-arm` | Runner to use — see table below |
 
 **Runner options**:
@@ -357,10 +357,19 @@ Go to **Actions** and enable workflows if prompted.
 
 ### 3. Run the first sync
 
+**Resolute Qcom (custom branch):**
 ```bash
 gh workflow run fetch-source-pkg.yml \
   --repo qualcomm-linux/pkg-linux-qcom-canonical \
-  --field suite=resolute-qcom
+  --field suite=resolute-qcom \
+  --field custom_git_url="https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute"
+```
+
+**Official Ubuntu suite (e.g. noble):**
+```bash
+gh workflow run fetch-source-pkg.yml \
+  --repo qualcomm-linux/pkg-linux-qcom-canonical \
+  --field suite=noble
 ```
 
 ---
@@ -405,12 +414,12 @@ The sync workflow supports two paths depending on whether a custom git URL is co
 ```bash
 git ls-remote --tags \
   https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute \
-  'refs/tags/Ubuntu-*'
-# → sort -V | tail -1 → Ubuntu-7.0.0-5.5
-# → VERSION=7.0.0-5.5
+  'refs/tags/Ubuntu-qcom-*'
+# → sort -V | tail -1 → Ubuntu-qcom-7.0.0-1003.3
+# → VERSION=7.0.0-1003.3
 ```
 
-The latest `Ubuntu-*` tag in the custom repo is the authoritative version source.
+The latest `Ubuntu-qcom-*` tag in the custom repo is the authoritative version source.
 The Launchpad REST API is not used.
 
 **Path B — Official suites (noble, questing, resolute): version from Launchpad REST API**
@@ -556,11 +565,11 @@ Canonical's own build infrastructure uses. The `clean` target:
 - Creates **`debian/changelog → debian.master/changelog`** symlink. The Ubuntu
   kernel source tree does not include `debian/changelog` directly — the
   changelog lives in `debian.master/changelog`. The `dh_installchangelogs`
-  debhelper tool (called at the end of `binary-generic`) requires this symlink
-  to exist or the build fails after 2+ hours of compilation:
+  debhelper tool (called at the end of `binary-qcom` / `binary-generic`) requires
+  this symlink to exist or the build fails after 2+ hours of compilation:
   ```
   dh_installchangelogs: error: cannot open file debian/changelog
-  make: *** [debian/rules.d/2-binary-arch.mk:572: binary-generic] Error 25
+  make: *** [debian/rules.d/2-binary-arch.mk:572: binary-qcom] Error 25
   ```
 - Removes any stale build artifacts
 
@@ -591,7 +600,7 @@ for all supported architectures including arm64. This check fails in the
 
 ```
 check-config: CONFIG_RUST_IS_AVAILABLE changed from y to -
-make: *** [debian/rules.d/4-checks.mk:15: config-prepare-check-generic] Error 1
+make: *** [debian/rules.d/4-checks.mk:15: config-prepare-check-qcom] Error 1
 ```
 
 Passing `do_skip_checks=true` to `fakeroot debian/rules` bypasses this policy

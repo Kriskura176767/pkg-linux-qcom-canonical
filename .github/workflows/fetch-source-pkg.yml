@@ -398,12 +398,24 @@ jobs:
           SUITE:    ${{ needs.check-version.outputs.suite }}
           VERSION:  ${{ needs.check-version.outputs.version }}
         run: |
+          # Derive the kernel flavour from the branch name.
+          # Custom branches (any branch with a suffix, e.g. resolute-qcom)
+          # use the 'qcom' flavour. Official Ubuntu suite branches
+          # (noble, questing, resolute — no suffix) use 'generic'.
+          # This ensures the daily resolute-qcom build always uses qcom.
+          if echo "${SUITE}" | grep -q '-'; then
+            FLAVOR="qcom"
+          else
+            FLAVOR="generic"
+          fi
+          echo "Branch: ${SUITE}  →  Flavour: ${FLAVOR}"
+
           gh workflow run build-kernel.yml \
             --repo "${{ github.repository }}" \
             --field suite="${SUITE}" \
             --field kernel_version="${VERSION}" \
             --field arch="arm64" \
-            --field flavor="generic" \
+            --field flavor="${FLAVOR}" \
             --field runner="ubuntu-24.04-arm"
 
-          echo "Build workflow dispatched for ${SUITE} ${VERSION}"
+          echo "Build workflow dispatched for ${SUITE} ${VERSION} (flavor=${FLAVOR})"

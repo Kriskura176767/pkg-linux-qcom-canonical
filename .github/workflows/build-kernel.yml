@@ -42,9 +42,10 @@ on:
       flavor:
         description: "Kernel flavour to build"
         required: false
-        default: "generic"
+        default: "qcom"
         type: choice
         options:
+          - qcom
           - generic
           - lowlatency
           - all
@@ -77,7 +78,7 @@ jobs:
     env:
       SUITE:   ${{ inputs.suite   || 'resolute-qcom' }}
       ARCH:    ${{ inputs.arch    || 'arm64' }}
-      FLAVOR:  ${{ inputs.flavor  || 'generic' }}
+      FLAVOR:  ${{ inputs.flavor  || 'qcom' }}
 
     steps:
       # -----------------------------------------------------------------------
