@@ -5,10 +5,10 @@
 # Mirrors the Canonical Ubuntu kernel from the Launchpad git repository into
 # a branch of this repo, preserving the upstream git history.
 #
-# Approach: full git clone + push
-#   Full git clone from Launchpad (same as local usage — reliably served).
-#   The complete upstream history is preserved. git log, git diff, and
-#   git blame work against all upstream commits.
+# Approach: full git clone + push (complete mirror)
+#   Full git clone from Launchpad (same as local usage) then push to GitHub.
+#   The complete upstream history is preserved — git log, git diff, and
+#   git blame work against all of Canonical's actual commits and authors.
 #
 # Why git instead of the source package?
 #   The Ubuntu kernel source package (format 1.0) ships only debian.master/
@@ -206,18 +206,18 @@ jobs:
   # ============================================================================
   # sync job
   #
-  # Approach: full git clone from Launchpad + push to GitHub
+  # Approach: full git clone from Launchpad + push to GitHub (complete mirror)
   #
   #   1. Full git clone --branch <tag> from Launchpad (no --depth)
   #      Same operation as local usage — reliably served by Launchpad.
-  #      git fetch --update-shallow causes 503 errors; git clone does not.
+  #      HTTP buffer tuned to prevent curl 18 / early EOF on large clones.
   #   2. Add our GitHub repo as a remote
-  #   3. Create our branch at the cloned HEAD
-  #   4. Add our scoped tag on the same upstream commit
+  #   3. Create our branch at the cloned HEAD (Canonical's commit)
+  #   4. Add our scoped tag on the same commit
   #   5. Push branch + tag to GitHub (--force for mirror semantics)
   #
-  # Result: our branch IS the upstream history. Complete git log, git diff,
-  # and git blame work against all upstream commits and authors.
+  # Result: our branch IS the complete upstream history. git log shows all
+  # of Canonical's commits. git diff and git blame work against upstream.
   # ============================================================================
   sync:
     name: "Sync ${{ needs.check-version.outputs.suite }} sources to branch"
@@ -293,26 +293,27 @@ jobs:
 
           GIT_TAG="${GIT_TAG_PREFIX}-${VERSION}"
           REPO_URL="https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+          MAX_RETRIES=3
+          RETRY_DELAY=30
 
           # ------------------------------------------------------------------
-          # Clone from Launchpad at the version tag with --depth=200.
-          # Full history (no --depth) exceeds GitHub's push size limit and
-          # results in HTTP 500 on git push. --depth=200 covers months of
-          # kernel history for meaningful diffs while staying within limits.
-          # Increase HTTP buffer to prevent curl 18 / early EOF on clone.
-          # Retry up to 3× with 30s back-off for transient failures.
+          # Tune git HTTP for large repo transfers.
+          # Prevents curl 18 (early EOF) on large clones.
           # ------------------------------------------------------------------
           git config --global http.postBuffer 524288000
           git config --global http.lowSpeedLimit 0
           git config --global http.lowSpeedTime 999999
 
-          echo "=== Cloning from Launchpad (depth=200) ==="
-          MAX_RETRIES=3
-          RETRY_DELAY=30
+          # ------------------------------------------------------------------
+          # Full clone from Launchpad at the version tag (no --depth).
+          # Same operation as local usage — reliably served by Launchpad.
+          # Retry up to 3× with 30s back-off for transient failures.
+          # ------------------------------------------------------------------
+          echo "=== Cloning from Launchpad (full history) ==="
 
           for attempt in $(seq 1 ${MAX_RETRIES}); do
             echo "Clone attempt ${attempt}/${MAX_RETRIES}..."
-            if git clone --depth=200 --branch "${GIT_TAG}" "${GIT_URL}" kernel-src/; then
+            if git clone --branch "${GIT_TAG}" "${GIT_URL}" kernel-src/; then
               echo "✓ Clone succeeded on attempt ${attempt}"
               break
             fi
@@ -354,7 +355,7 @@ jobs:
           git remote add github "${REPO_URL}"
 
           # ------------------------------------------------------------------
-          # Create our branch at the current HEAD (the Launchpad tag commit)
+          # Create our branch at the current HEAD (Canonical's commit)
           # and add our scoped tag on the same commit.
           # ------------------------------------------------------------------
           git checkout -b "${SUITE}"
