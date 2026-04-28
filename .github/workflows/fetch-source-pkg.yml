@@ -295,22 +295,24 @@ jobs:
           REPO_URL="https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
 
           # ------------------------------------------------------------------
-          # Full clone from Launchpad at the version tag.
-          # Increase HTTP buffer to handle large repos without mid-transfer
-          # connection drops (curl 18 / early EOF errors).
+          # Clone from Launchpad at the version tag with --depth=200.
+          # Full history (no --depth) exceeds GitHub's push size limit and
+          # results in HTTP 500 on git push. --depth=200 covers months of
+          # kernel history for meaningful diffs while staying within limits.
+          # Increase HTTP buffer to prevent curl 18 / early EOF on clone.
           # Retry up to 3× with 30s back-off for transient failures.
           # ------------------------------------------------------------------
           git config --global http.postBuffer 524288000
           git config --global http.lowSpeedLimit 0
           git config --global http.lowSpeedTime 999999
 
-          echo "=== Cloning from Launchpad (full history) ==="
+          echo "=== Cloning from Launchpad (depth=200) ==="
           MAX_RETRIES=3
           RETRY_DELAY=30
 
           for attempt in $(seq 1 ${MAX_RETRIES}); do
             echo "Clone attempt ${attempt}/${MAX_RETRIES}..."
-            if git clone --branch "${GIT_TAG}" "${GIT_URL}" kernel-src/; then
+            if git clone --depth=200 --branch "${GIT_TAG}" "${GIT_URL}" kernel-src/; then
               echo "✓ Clone succeeded on attempt ${attempt}"
               break
             fi
