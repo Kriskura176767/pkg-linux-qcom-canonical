@@ -296,11 +296,33 @@ jobs:
 
           # ------------------------------------------------------------------
           # Full clone from Launchpad at the version tag.
-          # git clone is the same operation as local usage — reliably served.
-          # No --depth: complete upstream history is preserved.
+          # Increase HTTP buffer to handle large repos without mid-transfer
+          # connection drops (curl 18 / early EOF errors).
+          # Retry up to 3× with 30s back-off for transient failures.
           # ------------------------------------------------------------------
+          git config --global http.postBuffer 524288000
+          git config --global http.lowSpeedLimit 0
+          git config --global http.lowSpeedTime 999999
+
           echo "=== Cloning from Launchpad (full history) ==="
-          git clone --branch "${GIT_TAG}" "${GIT_URL}" kernel-src/
+          MAX_RETRIES=3
+          RETRY_DELAY=30
+
+          for attempt in $(seq 1 ${MAX_RETRIES}); do
+            echo "Clone attempt ${attempt}/${MAX_RETRIES}..."
+            if git clone --branch "${GIT_TAG}" "${GIT_URL}" kernel-src/; then
+              echo "✓ Clone succeeded on attempt ${attempt}"
+              break
+            fi
+            rm -rf kernel-src/
+            if [ "${attempt}" -lt "${MAX_RETRIES}" ]; then
+              echo "Clone failed — retrying in ${RETRY_DELAY}s..."
+              sleep "${RETRY_DELAY}"
+            else
+              echo "ERROR: Clone failed after ${MAX_RETRIES} attempts" >&2
+              exit 1
+            fi
+          done
           cd kernel-src
 
           CANONICAL_COMMIT=$(git rev-parse HEAD)
