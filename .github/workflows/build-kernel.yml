@@ -20,15 +20,12 @@ on:
   workflow_dispatch:
     inputs:
       suite:
-        description: >
-          Branch to build from (e.g. noble, questing, resolute,
-          resolute-qcom). The base suite (e.g. resolute) is derived
-          automatically for Docker container selection.
+        description: "Branch to build from (e.g. resolute-qcom, noble, questing, resolute)"
         required: true
         default: "resolute-qcom"
         type: string
       kernel_version:
-        description: "Kernel version string (e.g. 6.8.0-51.52) – used for release asset attachment"
+        description: "Kernel version string (e.g. 7.0.0-1003.3) – used for release asset attachment"
         required: false
         type: string
       arch:

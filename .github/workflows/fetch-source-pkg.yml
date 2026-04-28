@@ -37,27 +37,16 @@ on:
   workflow_dispatch:
     inputs:
       suite:
-        description: >
-          Branch name to sync into (e.g. noble, questing, resolute,
-          resolute-qcom). This becomes the branch and tag prefix in this repo.
-          The base suite (e.g. resolute) is derived automatically from the
-          first component for Launchpad API queries and Docker container
-          selection.
+        description: "Branch to sync into (e.g. resolute-qcom, noble, questing, resolute)"
         required: false
         default: "resolute-qcom"
         type: string
       force:
-        description: "Force sync even if this version is already committed"
+        description: "Re-sync even if this version is already committed"
         type: boolean
         default: false
       custom_git_url:
-        description: >
-          Custom Launchpad git URL to clone from. Leave empty to sync an
-          official Ubuntu suite (noble, questing, resolute) from the upstream
-          Ubuntu kernel repo via the Launchpad REST API. Fill in the
-          Ubuntu-qcom Launchpad repository URL for resolute-qcom builds.
-          Scheduled runs always use the Ubuntu-qcom repo automatically.
-          Example: https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute
+        description: "Git URL to clone from. Leave empty to use the official Ubuntu kernel repo."
         required: false
         default: ""
         type: string
