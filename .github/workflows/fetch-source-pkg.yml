@@ -369,10 +369,12 @@ jobs:
           # ------------------------------------------------------------------
           # Push branch and tag to GitHub.
           # --force: safe for a mirror — we always move to a newer upstream tag.
+          # --no-thin: send all objects explicitly; thin packs fail when GitHub
+          #   does not have the expected base objects for delta resolution.
           # ------------------------------------------------------------------
           echo "=== Pushing ==="
-          git push --force github "${SUITE}"
-          git push --force github "${TAG}"
+          git push --force --no-thin github "${SUITE}"
+          git push --force --no-thin github "${TAG}"
           echo "Pushed branch '${SUITE}' and tag '${TAG}'"
 
       # -----------------------------------------------------------------------
