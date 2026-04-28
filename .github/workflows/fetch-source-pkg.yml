@@ -2,10 +2,15 @@
 #
 # fetch-source-pkg.yml
 #
-# Clones the Canonical Ubuntu kernel from the Launchpad git repository at
-# the tag corresponding to the latest published source package version, and
-# commits the full source tree (including the complete debian/ directory) to
-# a branch named after the Ubuntu suite (e.g. "noble", "questing").
+# Mirrors the Canonical Ubuntu kernel from the Launchpad git repository into
+# a branch of this repo, preserving the complete upstream git history.
+#
+# Why git fetch + fast-forward instead of shallow clone + rsync?
+#   The previous approach (git clone --depth=1 + rsync) created snapshot
+#   commits with no connection to Canonical's history. The current approach
+#   fetches the upstream tag with its full ancestry and fast-forwards our
+#   branch to it, so git log, git diff, and git blame all work against
+#   Canonical's actual commits.
 #
 # Why git instead of the source package?
 #   The Ubuntu kernel source package (format 1.0) ships only debian.master/
@@ -16,11 +21,12 @@
 # Repository branch layout
 # ─────────────────────────
 #   main          – CI infrastructure: workflows, scripts, documentation
-#   noble         – Ubuntu Noble (24.04 LTS) kernel source, one commit/upload
-#   <suite>       – additional suites added on demand (questing, resolute, …)
+#   noble         – Ubuntu Noble (24.04 LTS) kernel source, full history
+#   resolute-qcom – Ubuntu-qcom kernel source, full history (daily default)
+#   <branch>      – additional branches added on demand
 #
-# Each commit on a suite branch is tagged  <suite>-<version>
-# (e.g.  noble-6.8.0-114.114).
+# Each branch tip is tagged  <branch>-<version>
+# (e.g.  resolute-qcom-7.0.0-1003.3).
 #
 # Repository variables (Settings → Variables → Actions):
 #   KERNEL_SUITE          – default branch to sync when not specified (default: resolute-qcom)
@@ -199,6 +205,25 @@ jobs:
             echo "Tag '${TAG}' not found – will sync"
           fi
 
+  # ============================================================================
+  # sync job
+  #
+  # Replaces the previous shallow-clone + rsync approach with a proper git
+  # mirror pattern:
+  #
+  #   1. Clone our GitHub repo
+  #   2. Add Launchpad as a second remote
+  #   3. git fetch the upstream tag with its FULL ancestry (no --depth)
+  #   4. Fast-forward our branch to the upstream tag
+  #      (or create the branch on first sync)
+  #   5. Place our scoped tag (e.g. resolute-qcom-7.0.0-1003.3) on the
+  #      same Canonical commit — no extra snapshot commit is added
+  #   6. Push branch + tag
+  #
+  # Result: our branch IS the upstream history. git log, git diff, and
+  # git blame all work against Canonical's actual commits and authors.
+  # Subsequent syncs are incremental — only new commits are fetched.
+  # ============================================================================
   sync:
     name: "Sync ${{ needs.check-version.outputs.suite }} sources to branch"
     runs-on: ubuntu-24.04-arm
@@ -218,6 +243,8 @@ jobs:
     steps:
       # -----------------------------------------------------------------------
       # 1. Free up disk space
+      #    The full Canonical history fetch requires more headroom than the
+      #    previous shallow clone. Freeing unused toolchains gives ~10 GB.
       # -----------------------------------------------------------------------
       - name: Free up runner disk space
         run: |
@@ -236,46 +263,15 @@ jobs:
           df -h /
 
       # -----------------------------------------------------------------------
-      # 2. Install tools
+      # 2. Install tools  (rsync no longer needed)
       # -----------------------------------------------------------------------
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            curl jq rsync
+          sudo apt-get install -y --no-install-recommends curl jq
 
       # -----------------------------------------------------------------------
-      # 3. Clone from the resolved git URL at the version tag.
-      #    GIT_URL is either the custom repo URL (when custom_git_url input
-      #    was provided) or the standard Launchpad URL for the suite.
-      #    GIT_TAG_PREFIX determines the tag format:
-      #      Ubuntu-qcom → Ubuntu-qcom-7.0.0-1003.3  (resolute-qcom repo)
-      #      Ubuntu      → Ubuntu-6.8.0-114.114       (official repos)
-      # -----------------------------------------------------------------------
-      - name: Clone from git repo at version tag
-        run: |
-          GIT_TAG="${GIT_TAG_PREFIX}-${VERSION}"
-
-          echo "Cloning ${GIT_URL} at tag ${GIT_TAG} (shallow)..."
-          git clone --depth=1 --branch "${GIT_TAG}" "${GIT_URL}" kernel-src/
-
-          echo "SRC_DIR=kernel-src" >> "$GITHUB_ENV"
-
-          FILE_COUNT=$(find kernel-src/ -type f | wc -l)
-          echo "Cloned ${FILE_COUNT} files"
-          [ "${FILE_COUNT}" -gt 5000 ] || {
-            echo "ERROR: Too few files cloned (${FILE_COUNT})"
-            exit 1
-          }
-
-          echo "Top-level contents:"
-          ls kernel-src/
-
-          echo "debian/ contents:"
-          ls kernel-src/debian/ | head -20
-
-      # -----------------------------------------------------------------------
-      # 4. Configure git
+      # 3. Configure git identity
       # -----------------------------------------------------------------------
       - name: Configure git identity
         run: |
@@ -283,79 +279,135 @@ jobs:
           git config --global user.name  "github-actions[bot]"
 
       # -----------------------------------------------------------------------
-      # 5. Prepare the suite branch
+      # 4. Mirror: fetch upstream history and fast-forward our branch
+      #
+      #    Strategy:
+      #      • Clone our GitHub repo (contains existing branch history)
+      #      • Add Launchpad as a second remote
+      #      • git fetch the upstream tag with its complete ancestry
+      #        (no --depth — full history is preserved; subsequent syncs
+      #         are incremental, fetching only new commits)
+      #      • Fast-forward our branch to the upstream tag
+      #        If ff is impossible (upstream rebase/rewrite), reset --hard
+      #        to maintain a clean mirror and push with --force-with-lease
+      #      • Place our scoped tag on the same Canonical commit
       # -----------------------------------------------------------------------
-      - name: Clone repository for suite branch update
+      - name: Mirror upstream history into branch
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          REPO_URL="https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
-          git clone "${REPO_URL}" suite-repo
+          set -euo pipefail
 
-      - name: Check out or create suite branch
-        run: |
+          GIT_TAG="${GIT_TAG_PREFIX}-${VERSION}"
+          REPO_URL="https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+
+          # ------------------------------------------------------------------
+          # Clone our GitHub repository
+          # ------------------------------------------------------------------
+          echo "=== Cloning our repository ==="
+          git clone "${REPO_URL}" suite-repo
           cd suite-repo
 
-          if git ls-remote --exit-code origin "refs/heads/${SUITE}" >/dev/null 2>&1; then
-            echo "Branch '${SUITE}' exists – checking out"
-            git checkout "${SUITE}"
-            git rm -rf --quiet . 2>/dev/null || true
-          else
-            echo "Branch '${SUITE}' does not exist – creating orphan branch"
-            git checkout --orphan "${SUITE}"
-            git rm -rf --quiet . 2>/dev/null || true
-          fi
+          # ------------------------------------------------------------------
+          # Add Launchpad as a second remote
+          # ------------------------------------------------------------------
+          echo "=== Adding Launchpad remote ==="
+          git remote add launchpad "${GIT_URL}"
+          echo "Remotes:"
+          git remote -v
 
-      - name: Populate suite branch with cloned source
-        run: |
-          echo "Copying source tree from ${SRC_DIR} → suite-repo/"
-          rsync -a --delete \
-            --exclude='.git' \
-            "${SRC_DIR}/" suite-repo/
+          # ------------------------------------------------------------------
+          # Fetch the upstream tag with its complete ancestry.
+          #
+          # No --depth: the full Canonical history is preserved in our branch.
+          # The first sync fetches the complete history; subsequent syncs are
+          # incremental — only commits reachable from the new tag that are not
+          # already present locally are transferred.
+          #
+          # The refspec  refs/tags/<tag>:refs/tags/<tag>  fetches the tag
+          # object itself in addition to the commit it points to, so the tag
+          # is available locally for checkout and verification.
+          # ------------------------------------------------------------------
+          echo "=== Fetching ${GIT_TAG} from ${GIT_URL} ==="
+          git fetch launchpad "refs/tags/${GIT_TAG}:refs/tags/${GIT_TAG}"
 
-          COPIED=$(find suite-repo/ -type f | wc -l)
-          echo "Files in suite-repo after rsync: ${COPIED}"
-          [ "${COPIED}" -gt 5000 ] || {
-            echo "ERROR: rsync copied only ${COPIED} files"
+          CANONICAL_COMMIT=$(git rev-parse "${GIT_TAG}")
+          echo "Upstream commit  : ${CANONICAL_COMMIT}"
+          echo "Upstream tag     : ${GIT_TAG}"
+
+          # ------------------------------------------------------------------
+          # Verify the source tree at the fetched tag
+          # (git ls-tree is accurate and requires no working-tree checkout)
+          # ------------------------------------------------------------------
+          FILE_COUNT=$(git ls-tree -r --name-only "${GIT_TAG}" | wc -l)
+          echo "Files at ${GIT_TAG}: ${FILE_COUNT}"
+          [ "${FILE_COUNT}" -gt 5000 ] || {
+            echo "ERROR: Too few files at tag (${FILE_COUNT}) — expected >5000"
             exit 1
           }
 
-          cd suite-repo
+          echo "Top-level contents:"
+          git ls-tree --name-only "${GIT_TAG}"
 
-          SYNC_DATE=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-          printf '%s\n\n%s\n%s\n%s\n%s\n%s\n' \
-            "${SUITE}: ${VERSION}" \
-            "Branch         : ${SUITE}" \
-            "Kernel version : ${VERSION}" \
-            "Upstream       : ${UPSTREAM_VERSION}" \
-            "Source         : ${GIT_URL} (tag: ${GIT_TAG_PREFIX}-${VERSION})" \
-            "Synced         : ${SYNC_DATE}" \
-            > /tmp/commit-msg.txt
+          echo "debian/ contents:"
+          git ls-tree --name-only "${GIT_TAG}:debian" 2>/dev/null | head -20 \
+            || echo "(debian/ not found at root — may be in a subdirectory)"
 
-          git add --all
+          # ------------------------------------------------------------------
+          # Create or update our branch
+          # ------------------------------------------------------------------
+          FORCE_PUSH=false
 
-          if git diff --cached --quiet; then
-            echo "No changes to commit – branch already has this content"
+          if git ls-remote --exit-code origin "refs/heads/${SUITE}" >/dev/null 2>&1; then
+            echo "=== Branch '${SUITE}' exists — updating ==="
+            git checkout "${SUITE}"
+
+            # Fast-forward to the new upstream tag.
+            # Ubuntu/carmel-team kernel history is linear so --ff-only
+            # succeeds as long as the new tag descends from the branch tip.
+            if git merge --ff-only "${GIT_TAG}"; then
+              echo "✓ Fast-forwarded '${SUITE}' → ${GIT_TAG}"
+            else
+              # Non-linear history (upstream rebase or rewrite).
+              # Reset to maintain a clean mirror of the upstream.
+              echo "WARNING: Cannot fast-forward — upstream history is non-linear"
+              echo "Resetting '${SUITE}' to ${GIT_TAG} (mirror reset)"
+              git reset --hard "${GIT_TAG}"
+              FORCE_PUSH=true
+            fi
           else
-            git commit -F /tmp/commit-msg.txt
-            echo "Committed ${SUITE} branch at $(git rev-parse HEAD)"
+            echo "=== Branch '${SUITE}' does not exist — creating ==="
+            git checkout -b "${SUITE}" "${GIT_TAG}"
           fi
 
-      - name: Tag the commit
-        run: |
-          cd suite-repo
-          git tag -fa "${TAG}" -m "${SUITE} kernel ${VERSION}"
-          echo "Tagged: ${TAG}"
+          echo "Branch tip: $(git rev-parse HEAD)"
 
-      - name: Push suite branch and tag
-        run: |
-          cd suite-repo
-          git push origin "${SUITE}"
+          # ------------------------------------------------------------------
+          # Place our scoped tag on the Canonical commit.
+          # e.g. resolute-qcom-7.0.0-1003.3 → same commit as Ubuntu-qcom-7.0.0-1003.3
+          # This preserves the full history chain — no extra snapshot commit.
+          # ------------------------------------------------------------------
+          echo "=== Tagging ==="
+          git tag -fa "${TAG}" -m "${SUITE} kernel ${VERSION}"
+          echo "Tagged: ${TAG} → $(git rev-parse HEAD)"
+
+          # ------------------------------------------------------------------
+          # Push branch and tag to GitHub.
+          # --force-with-lease for the branch: safe force-push that fails if
+          # the remote was updated by another process since our clone.
+          # --force for the tag: tags are always overwritten on re-sync.
+          # ------------------------------------------------------------------
+          echo "=== Pushing ==="
+          if [ "${FORCE_PUSH}" = "true" ]; then
+            git push --force-with-lease origin "${SUITE}"
+          else
+            git push origin "${SUITE}"
+          fi
           git push --force origin "${TAG}"
           echo "Pushed branch '${SUITE}' and tag '${TAG}'"
 
       # -----------------------------------------------------------------------
-      # 6. Summary
+      # 5. Summary
       # -----------------------------------------------------------------------
       - name: Print summary
         if: always()
@@ -366,13 +418,13 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
           echo "|-------|-------|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Branch     | \`${SUITE}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Version    | \`${VERSION}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Branch ref | [\`${SUITE}\`](https://github.com/${{ github.repository }}/tree/${SUITE}) |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Tag        | [\`${TAG}\`](https://github.com/${{ github.repository }}/releases/tag/${TAG}) |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Cloned from | \`${GIT_URL}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Git tag    | \`${GIT_TAG}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Launchpad  | https://launchpad.net/ubuntu/${SUITE}/+source/${SOURCE}/${VERSION} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Branch      | \`${SUITE}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Version     | \`${VERSION}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Branch ref  | [\`${SUITE}\`](https://github.com/${{ github.repository }}/tree/${SUITE}) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Tag         | [\`${TAG}\`](https://github.com/${{ github.repository }}/releases/tag/${TAG}) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Upstream    | \`${GIT_URL}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Upstream tag| \`${GIT_TAG}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Launchpad   | https://launchpad.net/ubuntu/${SUITE}/+source/${SOURCE}/${VERSION} |" >> "$GITHUB_STEP_SUMMARY"
 
   trigger-build:
     name: "Trigger kernel build"
