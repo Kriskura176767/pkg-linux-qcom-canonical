@@ -410,6 +410,6 @@ jobs:
             --field kernel_version="${VERSION}" \
             --field arch="arm64" \
             --field flavor="${FLAVOR}" \
-            --field runner="ubuntu-24.04-arm"
+            --field runner="lecore-production"
 
-          echo "Build workflow dispatched for ${SUITE} ${VERSION} (flavor=${FLAVOR})"
+          echo "Build workflow dispatched for ${SUITE} ${VERSION} (flavor=${FLAVOR}, runner=lecore-production)"

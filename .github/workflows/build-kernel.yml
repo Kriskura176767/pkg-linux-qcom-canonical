@@ -285,12 +285,13 @@ jobs:
           ls -lh output/ || echo "(no files found)"
 
       # -----------------------------------------------------------------------
-      # 9. Upload to S3 (self-hosted runner only)
-      #    Skipped on GitHub-hosted runners — S3 credentials and network
-      #    access are only available on lecore-prd-u2404-arm64-xlrg-od-ephem.
+      # 9. Upload to S3 (lecore-production runner only)
+      #    Skipped on GitHub-hosted and generic self-hosted runners.
+      #    Condition checks the runner input, not runner.name, because the
+      #    runner's registered display name may differ from its label.
       # -----------------------------------------------------------------------
       - name: Upload kernel .deb packages to S3
-        if: runner.name == 'lecore-prd-u2404-arm64-xlrg-od-ephem'
+        if: inputs.runner == 'lecore-production'
         uses: qualcomm-linux/upload-private-artifact-action@aws
         with:
           s3_bucket: qli-prd-lecore-gh-artifacts
@@ -309,7 +310,26 @@ jobs:
           if-no-files-found: warn
 
       # -----------------------------------------------------------------------
-      # 11. Create GitHub Release and attach built packages
+      # 11. Install GitHub CLI if not present (required on self-hosted runners)
+      # -----------------------------------------------------------------------
+      - name: Install GitHub CLI (if not present)
+        if: inputs.kernel_version != ''
+        run: |
+          if ! command -v gh &>/dev/null; then
+            echo "gh not found — installing..."
+            curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+              | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+              | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+            sudo apt-get update -qq
+            sudo apt-get install -y gh
+            echo "✓ gh installed: $(gh --version | head -1)"
+          else
+            echo "✓ gh already available: $(gh --version | head -1)"
+          fi
+
+      # -----------------------------------------------------------------------
+      # 12. Create GitHub Release and attach built packages
       # -----------------------------------------------------------------------
       - name: Create GitHub Release and attach packages
         if: inputs.kernel_version != ''
@@ -349,7 +369,7 @@ jobs:
           echo "Release URL: https://github.com/${{ github.repository }}/releases/tag/${TAG}"
 
       # -----------------------------------------------------------------------
-      # 12. Summary
+      # 13. Summary
       # -----------------------------------------------------------------------
       - name: Print summary
         if: always()
