@@ -3,14 +3,12 @@
 # fetch-source-pkg.yml
 #
 # Mirrors the Canonical Ubuntu kernel from the Launchpad git repository into
-# a branch of this repo, preserving the complete upstream git history.
+# a branch of this repo, preserving the upstream git history.
 #
-# Why git fetch + fast-forward instead of shallow clone + rsync?
-#   The previous approach (git clone --depth=1 + rsync) created snapshot
-#   commits with no connection to Canonical's history. The current approach
-#   fetches the upstream tag with its full ancestry and fast-forwards our
-#   branch to it, so git log, git diff, and git blame all work against
-#   Canonical's actual commits.
+# Approach: full git clone + push
+#   Full git clone from Launchpad (same as local usage — reliably served).
+#   The complete upstream history is preserved. git log, git diff, and
+#   git blame work against all upstream commits.
 #
 # Why git instead of the source package?
 #   The Ubuntu kernel source package (format 1.0) ships only debian.master/
@@ -21,8 +19,8 @@
 # Repository branch layout
 # ─────────────────────────
 #   main          – CI infrastructure: workflows, scripts, documentation
-#   noble         – Ubuntu Noble (24.04 LTS) kernel source, full history
-#   resolute-qcom – Ubuntu-qcom kernel source, full history (daily default)
+#   noble         – Ubuntu Noble (24.04 LTS) kernel source, one commit/upload
+#   resolute-qcom – Ubuntu-qcom kernel source, one commit/upload (daily default)
 #   <branch>      – additional branches added on demand
 #
 # Each branch tip is tagged  <branch>-<version>
@@ -208,21 +206,18 @@ jobs:
   # ============================================================================
   # sync job
   #
-  # Replaces the previous shallow-clone + rsync approach with a proper git
-  # mirror pattern:
+  # Approach: full git clone from Launchpad + push to GitHub
   #
-  #   1. Clone our GitHub repo
-  #   2. Add Launchpad as a second remote
-  #   3. git fetch the upstream tag with its FULL ancestry (no --depth)
-  #   4. Fast-forward our branch to the upstream tag
-  #      (or create the branch on first sync)
-  #   5. Place our scoped tag (e.g. resolute-qcom-7.0.0-1003.3) on the
-  #      same Canonical commit — no extra snapshot commit is added
-  #   6. Push branch + tag
+  #   1. Full git clone --branch <tag> from Launchpad (no --depth)
+  #      Same operation as local usage — reliably served by Launchpad.
+  #      git fetch --update-shallow causes 503 errors; git clone does not.
+  #   2. Add our GitHub repo as a remote
+  #   3. Create our branch at the cloned HEAD
+  #   4. Add our scoped tag on the same upstream commit
+  #   5. Push branch + tag to GitHub (--force for mirror semantics)
   #
-  # Result: our branch IS the upstream history. git log, git diff, and
-  # git blame all work against Canonical's actual commits and authors.
-  # Subsequent syncs are incremental — only new commits are fetched.
+  # Result: our branch IS the upstream history. Complete git log, git diff,
+  # and git blame work against all upstream commits and authors.
   # ============================================================================
   sync:
     name: "Sync ${{ needs.check-version.outputs.suite }} sources to branch"
@@ -243,8 +238,6 @@ jobs:
     steps:
       # -----------------------------------------------------------------------
       # 1. Free up disk space
-      #    The full Canonical history fetch requires more headroom than the
-      #    previous shallow clone. Freeing unused toolchains gives ~10 GB.
       # -----------------------------------------------------------------------
       - name: Free up runner disk space
         run: |
@@ -263,7 +256,7 @@ jobs:
           df -h /
 
       # -----------------------------------------------------------------------
-      # 2. Install tools  (rsync no longer needed)
+      # 2. Install tools
       # -----------------------------------------------------------------------
       - name: Install dependencies
         run: |
@@ -279,20 +272,20 @@ jobs:
           git config --global user.name  "github-actions[bot]"
 
       # -----------------------------------------------------------------------
-      # 4. Mirror: fetch upstream history and fast-forward our branch
+      # 4. Clone from Launchpad and push to GitHub
+      #
+      #    git clone is reliably served by Launchpad (same as local usage).
+      #    git fetch --update-shallow into an existing repo uses a different
+      #    protocol path that Launchpad's servers handle poorly (503 errors).
       #
       #    Strategy:
-      #      • Clone our GitHub repo (contains existing branch history)
-      #      • Add Launchpad as a second remote
-      #      • git fetch the upstream tag with its complete ancestry
-      #        (no --depth — full history is preserved; subsequent syncs
-      #         are incremental, fetching only new commits)
-      #      • Fast-forward our branch to the upstream tag
-      #        If ff is impossible (upstream rebase/rewrite), reset --hard
-      #        to maintain a clean mirror and push with --force-with-lease
-      #      • Place our scoped tag on the same Canonical commit
+      #      • Full git clone --branch <tag> from Launchpad (no --depth)
+      #      • Add our GitHub repo as a remote
+      #      • Create our branch at the cloned HEAD
+      #      • Add our scoped tag on the same commit
+      #      • Push branch + tag to GitHub
       # -----------------------------------------------------------------------
-      - name: Mirror upstream history into branch
+      - name: Clone from Launchpad and push to GitHub
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -302,126 +295,55 @@ jobs:
           REPO_URL="https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
 
           # ------------------------------------------------------------------
-          # Clone our GitHub repository
+          # Full clone from Launchpad at the version tag.
+          # git clone is the same operation as local usage — reliably served.
+          # No --depth: complete upstream history is preserved.
           # ------------------------------------------------------------------
-          echo "=== Cloning our repository ==="
-          git clone "${REPO_URL}" suite-repo
-          cd suite-repo
+          echo "=== Cloning from Launchpad (full history) ==="
+          git clone --branch "${GIT_TAG}" "${GIT_URL}" kernel-src/
+          cd kernel-src
 
-          # ------------------------------------------------------------------
-          # Add Launchpad as a second remote
-          # ------------------------------------------------------------------
-          echo "=== Adding Launchpad remote ==="
-          git remote add launchpad "${GIT_URL}"
-          echo "Remotes:"
-          git remote -v
-
-          # ------------------------------------------------------------------
-          # Fetch the upstream tag with its ancestry.
-          #
-          # --depth=200: fetches the last 200 commits of history, which covers
-          # several months of kernel development — enough for meaningful diffs
-          # between versions without overloading Launchpad's git servers.
-          # Subsequent syncs use --update-shallow to extend the shallow boundary
-          # to include new commits while reusing already-fetched objects.
-          #
-          # Retry up to 3 times with a 30-second back-off to handle transient
-          # Launchpad 503 / RPC errors.
-          # ------------------------------------------------------------------
-          echo "=== Fetching ${GIT_TAG} from ${GIT_URL} ==="
-          FETCH_DEPTH=200
-          MAX_RETRIES=3
-          RETRY_DELAY=30
-
-          for attempt in $(seq 1 ${MAX_RETRIES}); do
-            echo "Fetch attempt ${attempt}/${MAX_RETRIES} (depth=${FETCH_DEPTH})..."
-            if git fetch --depth="${FETCH_DEPTH}" --update-shallow \
-                 launchpad "refs/tags/${GIT_TAG}:refs/tags/${GIT_TAG}"; then
-              echo "✓ Fetch succeeded on attempt ${attempt}"
-              break
-            fi
-            if [ "${attempt}" -lt "${MAX_RETRIES}" ]; then
-              echo "Fetch failed — retrying in ${RETRY_DELAY}s..."
-              sleep "${RETRY_DELAY}"
-            else
-              echo "ERROR: Fetch failed after ${MAX_RETRIES} attempts" >&2
-              exit 1
-            fi
-          done
-
-          CANONICAL_COMMIT=$(git rev-parse "${GIT_TAG}")
+          CANONICAL_COMMIT=$(git rev-parse HEAD)
           echo "Upstream commit  : ${CANONICAL_COMMIT}"
           echo "Upstream tag     : ${GIT_TAG}"
 
           # ------------------------------------------------------------------
-          # Verify the source tree at the fetched tag
-          # (git ls-tree is accurate and requires no working-tree checkout)
+          # Verify the source tree
           # ------------------------------------------------------------------
-          FILE_COUNT=$(git ls-tree -r --name-only "${GIT_TAG}" | wc -l)
-          echo "Files at ${GIT_TAG}: ${FILE_COUNT}"
+          FILE_COUNT=$(find . -not -path './.git*' -type f | wc -l)
+          echo "Files: ${FILE_COUNT}"
           [ "${FILE_COUNT}" -gt 5000 ] || {
-            echo "ERROR: Too few files at tag (${FILE_COUNT}) — expected >5000"
+            echo "ERROR: Too few files (${FILE_COUNT}) — expected >5000"
             exit 1
           }
 
           echo "Top-level contents:"
-          git ls-tree --name-only "${GIT_TAG}"
+          ls
 
           echo "debian/ contents:"
-          git ls-tree --name-only "${GIT_TAG}:debian" 2>/dev/null | head -20 \
+          ls debian/ 2>/dev/null | head -20 \
             || echo "(debian/ not found at root — may be in a subdirectory)"
 
           # ------------------------------------------------------------------
-          # Create or update our branch
+          # Add our GitHub repo as a remote
           # ------------------------------------------------------------------
-          FORCE_PUSH=false
-
-          if git ls-remote --exit-code origin "refs/heads/${SUITE}" >/dev/null 2>&1; then
-            echo "=== Branch '${SUITE}' exists — updating ==="
-            git checkout "${SUITE}"
-
-            # Fast-forward to the new upstream tag.
-            # Ubuntu/carmel-team kernel history is linear so --ff-only
-            # succeeds as long as the new tag descends from the branch tip.
-            if git merge --ff-only "${GIT_TAG}"; then
-              echo "✓ Fast-forwarded '${SUITE}' → ${GIT_TAG}"
-            else
-              # Non-linear history (upstream rebase or rewrite).
-              # Reset to maintain a clean mirror of the upstream.
-              echo "WARNING: Cannot fast-forward — upstream history is non-linear"
-              echo "Resetting '${SUITE}' to ${GIT_TAG} (mirror reset)"
-              git reset --hard "${GIT_TAG}"
-              FORCE_PUSH=true
-            fi
-          else
-            echo "=== Branch '${SUITE}' does not exist — creating ==="
-            git checkout -b "${SUITE}" "${GIT_TAG}"
-          fi
-
-          echo "Branch tip: $(git rev-parse HEAD)"
+          git remote add github "${REPO_URL}"
 
           # ------------------------------------------------------------------
-          # Place our scoped tag on the Canonical commit.
-          # e.g. resolute-qcom-7.0.0-1003.3 → same commit as Ubuntu-qcom-7.0.0-1003.3
-          # This preserves the full history chain — no extra snapshot commit.
+          # Create our branch at the current HEAD (the Launchpad tag commit)
+          # and add our scoped tag on the same commit.
           # ------------------------------------------------------------------
-          echo "=== Tagging ==="
+          git checkout -b "${SUITE}"
           git tag -fa "${TAG}" -m "${SUITE} kernel ${VERSION}"
           echo "Tagged: ${TAG} → $(git rev-parse HEAD)"
 
           # ------------------------------------------------------------------
           # Push branch and tag to GitHub.
-          # --force-with-lease for the branch: safe force-push that fails if
-          # the remote was updated by another process since our clone.
-          # --force for the tag: tags are always overwritten on re-sync.
+          # --force: safe for a mirror — we always move to a newer upstream tag.
           # ------------------------------------------------------------------
           echo "=== Pushing ==="
-          if [ "${FORCE_PUSH}" = "true" ]; then
-            git push --force-with-lease origin "${SUITE}"
-          else
-            git push origin "${SUITE}"
-          fi
-          git push --force origin "${TAG}"
+          git push --force github "${SUITE}"
+          git push --force github "${TAG}"
           echo "Pushed branch '${SUITE}' and tag '${TAG}'"
 
       # -----------------------------------------------------------------------
