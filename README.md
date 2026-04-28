@@ -7,7 +7,7 @@ Mirror and CI build pipeline for Canonical Ubuntu kernel source packages.
 ## End-to-end pipeline
 
 ```
-SCHEDULE: daily 04:00 UTC  ·  RUNNER: ubuntu-24.04-arm
+SCHEDULE: daily 04:00 UTC  ·  RUNNER: lecore-production
 ══════════════════════════════════════════════════════════════════════════════
 
   Ubuntu-qcom Launchpad repository
@@ -47,6 +47,7 @@ SCHEDULE: daily 04:00 UTC  ·  RUNNER: ubuntu-24.04-arm
 ║  │                                                                      │ ║
 ║  │  gh workflow run build-kernel.yml                                    │ ║
 ║  │    suite=resolute-qcom  kernel_version=X.Y.Z-A.B  arch=arm64        │ ║
+║  │    runner=lecore-production                                          │ ║
 ║  └──────────────────────────────────────────────────────────────────────┘ ║
 ╚════════════════════════════════════════════════════════════════════════════╝
          │
@@ -83,8 +84,8 @@ SCHEDULE: daily 04:00 UTC  ·  RUNNER: ubuntu-24.04-arm
   └──────────────┘    └──────────────────┘    └──────────────────┘
 ```
 
-All jobs run on: `ubuntu-24.04-arm` (GitHub-hosted, Ubuntu 24.04 arm64)  
-Target runner: `lecore-prd-u2404-arm64-xlrg-od-ephem` (self-hosted) — pending runner group access
+Sync jobs run on: `ubuntu-24.04-arm` (GitHub-hosted, Ubuntu 24.04 arm64)  
+Build jobs run on: `lecore-prd-u2404-arm64-xlrg-od-ephem` (self-hosted, lecore-production)
 
 ---
 
@@ -287,7 +288,7 @@ container using `fakeroot debian/rules binary-<flavor>`.
 
 **Trigger**: dispatched automatically by `fetch-source-pkg.yml`, or
 manually via `Actions → Build: Canonical Kernel .deb Packages → Run workflow`.  
-**Runner**: `ubuntu-24.04-arm`
+**Runner**: `lecore-production` (scheduled builds); selectable for manual builds
 
 **Inputs**:
 
@@ -303,11 +304,11 @@ manually via `Actions → Build: Canonical Kernel .deb Packages → Run workflow
 
 | Option | Resolves to | Status |
 |--------|-------------|--------|
-| `ubuntu-24.04-arm` | GitHub-hosted 2-core arm64 | **default** — used by scheduled builds |
+| `ubuntu-24.04-arm` | GitHub-hosted 2-core arm64 | manual builds / fallback |
 | `self-hosted` | `runs-on: self-hosted` — any registered self-hosted runner | interim dev runner |
-| `lecore-production` | `runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]` | **target** — pending runner group access |
+| `lecore-production` | `runs-on: [self-hosted, lecore-prd-u2404-arm64-xlrg-od-ephem]` | **active** — used by scheduled builds |
 
-The scheduled daily sync always dispatches with `runner=ubuntu-24.04-arm`. The `lecore-production` runner enables S3 artifact upload (permanent storage) in addition to the GitHub Actions artifact fallback.
+The scheduled daily sync always dispatches with `runner=lecore-production`. The `lecore-production` runner enables S3 artifact upload (permanent storage) in addition to the GitHub Actions artifact fallback.
 
 **Self-hosted runner requirements:**
 - Ubuntu 24.04 arm64
@@ -333,7 +334,7 @@ The scheduled daily sync always dispatches with `runner=ubuntu-24.04-arm`. The `
 
 | Location | How to access | Retention | Notes |
 |----------|---------------|-----------|-------|
-| **S3** | `s3://qli-prd-lecore-gh-artifacts/<org>/pkg/temp/<repo>/<run-id>/` | Permanent | Self-hosted runner only; skipped gracefully on GitHub-hosted |
+| **S3** | `s3://qli-prd-lecore-gh-artifacts/<org>/pkg/temp/<repo>/<run-id>/` | Permanent | `lecore-production` runner only; skipped on other runners |
 | **GitHub Actions artifact** | Actions → workflow run → *Artifacts* | 90 days | Always available |
 | **GitHub Release asset** | Releases → `<branch>-X.Y.Z-A.B` → Assets | Permanent | Attached when `kernel_version` is provided |
 
