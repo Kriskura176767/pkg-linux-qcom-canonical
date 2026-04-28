@@ -5,10 +5,12 @@
 # Mirrors the Canonical Ubuntu kernel from the Launchpad git repository into
 # a branch of this repo, preserving the upstream git history.
 #
-# Approach: full git clone + push (complete mirror)
-#   Full git clone from Launchpad (same as local usage) then push to GitHub.
-#   The complete upstream history is preserved — git log, git diff, and
-#   git blame work against all of Canonical's actual commits and authors.
+# Approach: git clone --depth=1 + push (Canonical commit hash preserved)
+#   Clones the exact Canonical commit at the version tag (--depth=1) and
+#   pushes it directly to GitHub — no rsync, no extra commit. The branch
+#   tip has the same hash as Canonical's commit, so PRs raised on top will
+#   apply cleanly on Canonical's branch via git cherry-pick.
+#   Full history push exceeds GitHub's 2GB push limit for large repos.
 #
 # Why git instead of the source package?
 #   The Ubuntu kernel source package (format 1.0) ships only debian.master/
@@ -206,18 +208,24 @@ jobs:
   # ============================================================================
   # sync job
   #
-  # Approach: full git clone from Launchpad + push to GitHub (complete mirror)
+  # Approach: git clone --depth=1 + push (Canonical commit hash preserved)
   #
-  #   1. Full git clone --branch <tag> from Launchpad (no --depth)
-  #      Same operation as local usage — reliably served by Launchpad.
-  #      HTTP buffer tuned to prevent curl 18 / early EOF on large clones.
+  #   1. git clone --depth=1 --branch <tag> from Launchpad
+  #      Fetches exactly the Canonical commit at the version tag.
+  #      --depth=1 is the only depth that works end-to-end:
+  #        full clone  → GitHub push fails (HTTP 500, exceeds 2GB limit)
+  #        --depth=N>1 → GitHub push fails (cannot resolve shallow parents)
+  #        --depth=1   → works (single root commit, no parent to resolve)
   #   2. Add our GitHub repo as a remote
-  #   3. Create our branch at the cloned HEAD (Canonical's commit)
+  #   3. Create our branch at the cloned HEAD (Canonical's actual commit)
   #   4. Add our scoped tag on the same commit
   #   5. Push branch + tag to GitHub (--force for mirror semantics)
   #
-  # Result: our branch IS the complete upstream history. git log shows all
-  # of Canonical's commits. git diff and git blame work against upstream.
+  # Key property: the branch tip has the SAME commit hash as Canonical's
+  # branch. PRs raised on top will apply cleanly on Canonical's branch
+  # via git cherry-pick — the parent commit is identical.
+  # git diff <tag1> <tag2> compares the two source trees and shows exactly
+  # what Canonical changed between releases.
   # ============================================================================
   sync:
     name: "Sync ${{ needs.check-version.outputs.suite }} sources to branch"
@@ -297,23 +305,19 @@ jobs:
           RETRY_DELAY=30
 
           # ------------------------------------------------------------------
-          # Tune git HTTP for large repo transfers.
-          # Prevents curl 18 (early EOF) on large clones.
-          # ------------------------------------------------------------------
-          git config --global http.postBuffer 524288000
-          git config --global http.lowSpeedLimit 0
-          git config --global http.lowSpeedTime 999999
-
-          # ------------------------------------------------------------------
-          # Full clone from Launchpad at the version tag (no --depth).
-          # Same operation as local usage — reliably served by Launchpad.
+          # Clone from Launchpad at the version tag with --depth=1.
+          # Fetches exactly the Canonical commit — no extra history.
+          # --depth=1 is the only value that works end-to-end with GitHub:
+          #   full clone  → HTTP 500 on push (exceeds GitHub's 2GB limit)
+          #   --depth=N>1 → push rejected (cannot resolve shallow parents)
+          #   --depth=1   → works (single root commit, no parent to resolve)
           # Retry up to 3× with 30s back-off for transient failures.
           # ------------------------------------------------------------------
-          echo "=== Cloning from Launchpad (full history) ==="
+          echo "=== Cloning from Launchpad (depth=1) ==="
 
           for attempt in $(seq 1 ${MAX_RETRIES}); do
             echo "Clone attempt ${attempt}/${MAX_RETRIES}..."
-            if git clone --branch "${GIT_TAG}" "${GIT_URL}" kernel-src/; then
+            if git clone --depth=1 --branch "${GIT_TAG}" "${GIT_URL}" kernel-src/; then
               echo "✓ Clone succeeded on attempt ${attempt}"
               break
             fi
