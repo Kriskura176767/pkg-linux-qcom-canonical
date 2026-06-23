@@ -36,9 +36,6 @@
 name: "Sync: Canonical Kernel Sources to Branch"
 
 on:
-  schedule:
-    - cron: "0 4 * * *"
-
   workflow_dispatch:
     inputs:
       suite:
