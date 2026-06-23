@@ -292,7 +292,7 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Upload kernel .deb packages to S3
         if: inputs.runner == 'lecore-production'
-        uses: qualcomm-linux/upload-private-artifact-action@aws
+        uses: qualcomm-linux/upload-private-artifact-action@aws-v4
         with:
           s3_bucket: qli-prd-lecore-gh-artifacts
           path: ${{ github.workspace }}/output
