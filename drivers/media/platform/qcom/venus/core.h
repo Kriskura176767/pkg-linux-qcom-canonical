@@ -536,7 +536,7 @@ struct venus_inst {
 #if (!IS_ENABLED(CONFIG_VIDEO_QCOM_IRIS))
 #define IS_V6(core)	((core)->res->hfi_version == HFI_VERSION_6XX)
 #else
-#define IS_V6(core)	(0)
+#define IS_V6(core)	(((void)(core), 0))
 #endif
 
 #define IS_AR50(core)		((core)->res->vpu_version == VPU_VERSION_AR50)
@@ -546,8 +546,8 @@ struct venus_inst {
 #define IS_IRIS2(core)		((core)->res->vpu_version == VPU_VERSION_IRIS2)
 #define IS_IRIS2_1(core)	((core)->res->vpu_version == VPU_VERSION_IRIS2_1)
 #else
-#define IS_IRIS2(core)		(0)
-#define IS_IRIS2_1(core)	(0)
+#define IS_IRIS2(core)		(((void)(core), 0))
+#define IS_IRIS2_1(core)	(((void)(core), 0))
 #endif
 
 static inline bool is_lite(struct venus_core *core)

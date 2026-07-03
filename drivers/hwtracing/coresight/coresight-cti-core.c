@@ -23,6 +23,54 @@
 #include "coresight-cti.h"
 #include "qcom-cti.h"
 
+static const u32 cti_normal_offset[] = {
+	[INDEX_CTIINTACK]		= CTIINTACK,
+	[INDEX_CTIAPPSET]		= CTIAPPSET,
+	[INDEX_CTIAPPCLEAR]		= CTIAPPCLEAR,
+	[INDEX_CTIAPPPULSE]		= CTIAPPPULSE,
+	[INDEX_CTIINEN]			= CTIINEN(0),
+	[INDEX_CTIOUTEN]		= CTIOUTEN(0),
+	[INDEX_CTITRIGINSTATUS]		= CTITRIGINSTATUS,
+	[INDEX_CTITRIGOUTSTATUS]	= CTITRIGOUTSTATUS,
+	[INDEX_CTICHINSTATUS]		= CTICHINSTATUS,
+	[INDEX_CTICHOUTSTATUS]		= CTICHOUTSTATUS,
+	[INDEX_CTIGATE]			= CTIGATE,
+	[INDEX_ASICCTL]			= ASICCTL,
+	[INDEX_ITCHINACK]		= ITCHINACK,
+	[INDEX_ITTRIGINACK]		= ITTRIGINACK,
+	[INDEX_ITCHOUT]			= ITCHOUT,
+	[INDEX_ITTRIGOUT]		= ITTRIGOUT,
+	[INDEX_ITCHOUTACK]		= ITCHOUTACK,
+	[INDEX_ITTRIGOUTACK]		= ITTRIGOUTACK,
+	[INDEX_ITCHIN]			= ITCHIN,
+	[INDEX_ITTRIGIN]		= ITTRIGIN,
+	[INDEX_ITCTRL]			= CORESIGHT_ITCTRL,
+};
+
+static const u32 cti_extended_offset[] = {
+	[INDEX_CTIINTACK]		= QCOM_CTIINTACK,
+	[INDEX_CTIAPPSET]		= QCOM_CTIAPPSET,
+	[INDEX_CTIAPPCLEAR]		= QCOM_CTIAPPCLEAR,
+	[INDEX_CTIAPPPULSE]		= QCOM_CTIAPPPULSE,
+	[INDEX_CTIINEN]			= QCOM_CTIINEN,
+	[INDEX_CTIOUTEN]		= QCOM_CTIOUTEN,
+	[INDEX_CTITRIGINSTATUS]		= QCOM_CTITRIGINSTATUS,
+	[INDEX_CTITRIGOUTSTATUS]	= QCOM_CTITRIGOUTSTATUS,
+	[INDEX_CTICHINSTATUS]		= QCOM_CTICHINSTATUS,
+	[INDEX_CTICHOUTSTATUS]		= QCOM_CTICHOUTSTATUS,
+	[INDEX_CTIGATE]			= QCOM_CTIGATE,
+	[INDEX_ASICCTL]			= QCOM_ASICCTL,
+	[INDEX_ITCHINACK]		= QCOM_ITCHINACK,
+	[INDEX_ITTRIGINACK]		= QCOM_ITTRIGINACK,
+	[INDEX_ITCHOUT]			= QCOM_ITCHOUT,
+	[INDEX_ITTRIGOUT]		= QCOM_ITTRIGOUT,
+	[INDEX_ITCHOUTACK]		= QCOM_ITCHOUTACK,
+	[INDEX_ITTRIGOUTACK]		= QCOM_ITTRIGOUTACK,
+	[INDEX_ITCHIN]			= QCOM_ITCHIN,
+	[INDEX_ITTRIGIN]		= QCOM_ITTRIGIN,
+	[INDEX_ITCTRL]			= CORESIGHT_ITCTRL,
+};
+
 /*
  * CTI devices can be associated with a PE, or be connected to CoreSight
  * hardware. We have a list of all CTIs irrespective of CPU bound or
@@ -43,17 +91,20 @@ static DEFINE_MUTEX(ect_mutex);
 #define csdev_to_cti_drvdata(csdev)	\
 	dev_get_drvdata(csdev->dev.parent)
 
-static void __iomem *cti_reg_addr(struct cti_drvdata *drvdata, int reg)
-{
-	u32 offset = CTI_REG_CLR_NR(reg);
-	u32 nr = CTI_REG_GET_NR(reg);
+/* power management handling */
+static int nr_cti_cpu;
 
-	/* convert to qcom specific offset */
-	if (unlikely(drvdata->is_qcom_cti))
-		offset = cti_qcom_reg_off(offset);
+/* quick lookup list for CPU bound CTIs when power handling */
+static struct cti_drvdata *cti_cpu_drvdata[NR_CPUS];
 
-	return drvdata->base + offset + sizeof(u32) * nr;
-}
+/*
+ * CTI naming. CTI bound to cores will have the name cti_cpu<N> where
+ * N is the CPU ID. System CTIs will have the name cti_sys<I> where I
+ * is an index allocated by order of discovery.
+ *
+ * CTI device name list - for CTI not bound to cores.
+ */
+DEFINE_CORESIGHT_DEVLIST(cti_sys_devs, "cti_sys");
 
 /* write set of regs to hardware - call with spinlock claimed */
 void cti_write_all_hw_regs(struct cti_drvdata *drvdata)
@@ -69,16 +120,15 @@ void cti_write_all_hw_regs(struct cti_drvdata *drvdata)
 	/* write the CTI trigger registers */
 	for (i = 0; i < config->nr_trig_max; i++) {
 		writel_relaxed(config->ctiinen[i],
-			       cti_reg_addr(drvdata, CTI_REG_SET_NR(CTIINEN, i)));
+			       drvdata->base + cti_offset(drvdata, INDEX_CTIINEN, i));
 		writel_relaxed(config->ctiouten[i],
-			       cti_reg_addr(drvdata, CTI_REG_SET_NR(CTIOUTEN, i)));
+			       drvdata->base + cti_offset(drvdata, INDEX_CTIOUTEN, i));
 	}
 
 	/* other regs */
-	writel_relaxed(config->ctigate, cti_reg_addr(drvdata, CTIGATE));
-	if (config->asicctl_impl)
-		writel_relaxed(config->asicctl, cti_reg_addr(drvdata, ASICCTL));
-	writel_relaxed(config->ctiappset, cti_reg_addr(drvdata, CTIAPPSET));
+	writel_relaxed(config->ctigate, drvdata->base + cti_offset(drvdata, INDEX_CTIGATE, 0));
+	writel_relaxed(config->asicctl, drvdata->base + cti_offset(drvdata, INDEX_ASICCTL, 0));
+	writel_relaxed(config->ctiappset, drvdata->base + cti_offset(drvdata, INDEX_CTIAPPSET, 0));
 
 	/* re-enable CTI */
 	writel_relaxed(1, drvdata->base + CTICONTROL);
@@ -180,21 +230,16 @@ static int cti_disable_hw(struct cti_drvdata *drvdata)
 	raw_spin_unlock(&drvdata->spinlock);
 	return ret;
 
-u32 cti_read_single_reg(struct cti_drvdata *drvdata, int offset)
-{
-	int val;
-
-	CS_UNLOCK(drvdata->base);
-	val = readl_relaxed(cti_reg_addr(drvdata, offset));
-	CS_LOCK(drvdata->base);
-
-	return val;
+	/* not disabled this call */
+cti_not_disabled:
+	raw_spin_unlock(&drvdata->spinlock);
+	return ret;
 }
 
 void cti_write_single_reg(struct cti_drvdata *drvdata, int offset, u32 value)
 {
 	CS_UNLOCK(drvdata->base);
-	writel_relaxed(value, cti_reg_addr(drvdata, offset));
+	writel_relaxed(value, drvdata->base + offset);
 	CS_LOCK(drvdata->base);
 }
 
@@ -402,7 +447,8 @@ int cti_channel_trig_op(struct device *dev, enum cti_chan_op op,
 
 	/* update the local register values */
 	chan_bitmask = BIT(channel_idx);
-	reg_offset = (direction == CTI_TRIG_IN ? CTIINEN : CTIOUTEN);
+	reg_offset = (direction == CTI_TRIG_IN ? cti_offset(drvdata, INDEX_CTIINEN, trigger_idx) :
+			cti_offset(drvdata, INDEX_CTIOUTEN, trigger_idx));
 
 	raw_spin_lock(&drvdata->spinlock);
 
@@ -421,10 +467,9 @@ int cti_channel_trig_op(struct device *dev, enum cti_chan_op op,
 		config->ctiouten[trigger_idx] = reg_value;
 
 	/* write through if enabled */
-	if (cti_is_active(config))
-		cti_write_single_reg(drvdata,
-				     CTI_REG_SET_NR(reg_offset, trigger_idx),
-				     reg_value);
+	if (cti_active(config))
+		cti_write_single_reg(drvdata, reg_offset, reg_value);
+	raw_spin_unlock(&drvdata->spinlock);
 	return 0;
 }
 
@@ -928,22 +973,6 @@ static int cti_probe(struct amba_device *adev, const struct amba_id *id)
 
 	raw_spin_lock_init(&drvdata->spinlock);
 
-	devarch = readl_relaxed(drvdata->base + CORESIGHT_DEVARCH);
-	if (CTI_DEVARCH_ARCHITECT(devarch) == ARCHITECT_QCOM) {
-		drvdata->is_qcom_cti = true;
-		/*
-		 * QCOM CTI does not implement Claimtag functionality as
-		 * per CoreSight specification, but its CLAIMSET register
-		 * is incorrectly initialized to 0xF. This can mislead
-		 * tools or drivers into thinking the component is claimed.
-		 *
-		 * Reset CLAIMSET to 0 to reflect that no claims are active.
-		 */
-		CS_UNLOCK(drvdata->base);
-		writel_relaxed(0, drvdata->base + CORESIGHT_CLAIMSET);
-		CS_LOCK(drvdata->base);
-	}
-
 	/* initialise CTI driver config values */
 	ret = cti_set_default_config(dev, drvdata);
 	if (ret)
@@ -1027,8 +1056,7 @@ static int cti_probe(struct amba_device *adev, const struct amba_id *id)
 
 	/* all done - dec pm refcount */
 	pm_runtime_put(&adev->dev);
-	dev_info(&drvdata->csdev->dev,
-		 "%sCTI initialized\n", drvdata->is_qcom_cti ? "QCOM " : "");
+	dev_info(&drvdata->csdev->dev, "CTI initialized; subtype=%d\n", drvdata->subtype);
 	return 0;
 
 pm_release:

@@ -44,6 +44,12 @@ dtb-$(CONFIG_ARCH_QCOM)	+= kaanapali-mtp.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= kaanapali-qrd.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= lemans-evk.dtb
 
+lemans-evk-emmc-dtbs := lemans-evk.dtb lemans-evk-emmc.dtbo
+dtb-$(CONFIG_ARCH_QCOM) += lemans-evk-emmc.dtb
+
+lemans-evk-sd-card-dtbs := lemans-evk.dtb lemans-evk-sd-card.dtbo
+dtb-$(CONFIG_ARCH_QCOM) += lemans-evk-sd-card.dtb
+
 lemans-evk-camera-csi1-imx577-dtbs	:= lemans-evk.dtb lemans-evk-camera-csi1-imx577.dtbo
 lemans-evk-camera-dtbs	:= lemans-evk.dtb lemans-evk-camera.dtbo
 
@@ -78,6 +84,13 @@ monaco-evk-ifp-mezzanine-dtbs	:= monaco-evk.dtb monaco-evk-ifp-mezzanine.dtbo
 
 dtb-$(CONFIG_ARCH_QCOM)	+= monaco-evk-ifp-mezzanine.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= monaco-evk-ifp-mezzanine.dtbo
+
+monaco-evk-sd-card-dtbs := monaco-evk.dtb monaco-evk-sd-card.dtbo
+dtb-$(CONFIG_ARCH_QCOM) += monaco-evk-sd-card.dtb
+
+monaco-evk-emmc-dtbs := monaco-evk.dtb monaco-evk-emmc.dtbo
+dtb-$(CONFIG_ARCH_QCOM) += monaco-evk-emmc.dtb
+
 dtb-$(CONFIG_ARCH_QCOM)	+= msm8216-samsung-fortuna3g.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= msm8916-acer-a1-724.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= msm8916-alcatel-idol347.dtb
@@ -353,6 +366,14 @@ dtb-$(CONFIG_ARCH_QCOM)	+= sdx75-idp.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= shikra-cqm-evk.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= shikra-cqs-evk.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= shikra-iqs-evk.dtb
+
+shikra-cqm-evk-imx577-camera-dtbs	:= shikra-cqm-evk.dtb shikra-cqm-evk-imx577-camera.dtbo
+shikra-cqs-evk-imx577-camera-dtbs	:= shikra-cqs-evk.dtb shikra-cqm-evk-imx577-camera.dtbo
+shikra-iqs-evk-imx577-camera-dtbs	:= shikra-iqs-evk.dtb shikra-iqs-evk-imx577-camera.dtbo
+
+dtb-$(CONFIG_ARCH_QCOM)	+= shikra-cqm-evk-imx577-camera.dtb
+dtb-$(CONFIG_ARCH_QCOM)	+= shikra-cqs-evk-imx577-camera.dtb
+dtb-$(CONFIG_ARCH_QCOM)	+= shikra-iqs-evk-imx577-camera.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= sm4250-oneplus-billie2.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= sm4450-qrd.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= sm6115-fxtec-pro1x.dtb
@@ -486,10 +507,19 @@ x1p64100-microsoft-denali-el2-dtbs	:= x1p64100-microsoft-denali.dtb x1-el2.dtbo
 dtb-$(CONFIG_ARCH_QCOM)	+= x1p64100-microsoft-denali.dtb x1p64100-microsoft-denali-el2.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= x1-el2.dtbo
 
+glymur-crd-camx-dtbs    := glymur-crd.dtb glymur-crd-camx.dtbo
+
+dtb-$(CONFIG_ARCH_QCOM)	+= glymur-crd-camx.dtb
+dtb-$(CONFIG_ARCH_QCOM)	+= glymur-crd-camx.dtbo
+
 hamoa-evk-camx-dtbs  := hamoa-iot-evk.dtb hamoa-evk-camx.dtbo
 
 dtb-$(CONFIG_ARCH_QCOM)	+= hamoa-evk-camx.dtb
 dtb-$(CONFIG_ARCH_QCOM)	+= hamoa-evk-camx.dtbo
+
+hamoa-camx-el2-dtbs  := hamoa-iot-evk-el2.dtb hamoa-evk-camx.dtbo hamoa-camx-el2.dtbo
+
+dtb-$(CONFIG_ARCH_QCOM)	+= hamoa-camx-el2.dtb
 
 lemans-evk-camx-dtbs	:= lemans-evk.dtb lemans-evk-camx.dtbo
 
@@ -504,6 +534,7 @@ dtb-$(CONFIG_ARCH_QCOM)	+= lemans-camx-el2.dtbo
 dtb-$(CONFIG_ARCH_QCOM)	+= lemans-evk-staging.dtbo
 
 dtb-$(CONFIG_ARCH_QCOM)	+= lemans-staging.dtbo
+dtb-$(CONFIG_ARCH_QCOM)	+= lemans-sail-mb.dtbo
 
 monaco-evk-camx-dtbs   := monaco-evk.dtb monaco-evk-camx.dtbo
 
@@ -522,6 +553,10 @@ dtb-$(CONFIG_ARCH_QCOM)	+= monaco-staging.dtbo
 purwa-evk-camx-dtbs     := purwa-iot-evk.dtb purwa-evk-camx.dtbo
 
 dtb-$(CONFIG_ARCH_QCOM)	+= purwa-evk-camx.dtb
+
+purwa-camx-el2-dtbs  := purwa-iot-evk-el2.dtb purwa-evk-camx.dtbo purwa-camx-el2.dtbo
+
+dtb-$(CONFIG_ARCH_QCOM)	+= purwa-camx-el2.dtb
 
 qcs5430-fps-camx-dtbs   := qcs6490-rb3gen2.dtb qcs5430-fps-camx.dtbo
 
@@ -574,3 +609,9 @@ dtb-$(CONFIG_ARCH_QCOM) += talos-staging.dtbo
 dtb-$(CONFIG_ARCH_QCOM) += kodiak-staging.dtbo
 
 dtb-$(CONFIG_ARCH_QCOM) += glymur-staging.dtbo
+
+dtb-$(CONFIG_ARCH_QCOM) += hamoa-staging.dtbo
+
+dtb-$(CONFIG_ARCH_QCOM) += sm8750-staging.dtbo
+
+dtb-$(CONFIG_ARCH_QCOM) += kaanapali-staging.dtbo
