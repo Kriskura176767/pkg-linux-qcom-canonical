@@ -19,6 +19,7 @@
 #include <dt-bindings/interconnect/qcom,icc.h>
 
 #include "purwa-camera.dtsi"
+#include "purwa-camera-sensor.dtsi"
 
 &camss {
 	status = "disabled";
