@@ -34,11 +34,10 @@ upstream kernel tree the packages are built from.
 frozen under an immutable `Ubuntu-qcom-X.Y.Z-A.B` tag. A one-time bootstrap seeds
 the branch; thereafter an incremental sync advances it per new upstream upload and
 triggers a build. Builds produce `.deb` packages uploaded to a private S3 bucket
-(no GitHub artifacts or releases). Downstream patches land on `resolute-qcom-devel`,
+(no GitHub artifacts or releases). Qualcomm contributions land on `resolute-qcom-devel`,
 never on the mirror.
 
-Upstream source: the Qualcomm Ubuntu kernel on
-[Launchpad](https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute).
+Upstream source: [https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute](https://git.launchpad.net/~carmel-team/ubuntu/+source/linux/+git/resolute).
 
 ## Running it
 
@@ -60,7 +59,3 @@ gh workflow run bootstrap-history.yml --repo qualcomm-linux/pkg-linux-qcom-canon
 PRs into `resolute-qcom-devel` get a build-only pre-merge check (`premerge-pr.yml`
 on that branch), which calls `build-kernel.yml` with `skip_s3=true`.
 
-## License
-
-BSD 3-Clause for the CI scripts and workflows; GPL-2 for the mirrored kernel
-source. See the [main README](../README.md#license).
