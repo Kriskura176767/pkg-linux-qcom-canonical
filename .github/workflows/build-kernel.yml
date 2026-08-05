@@ -45,6 +45,16 @@ on:
         required: false
         default: true
         type: boolean
+      flavor:
+        description: "Kernel flavor to build (qcom, qcom-rt). ALL builds every flavor plus binary-indep."
+        required: false
+        default: "ALL"
+        type: string
+      binary_indep:
+        description: "Build binary-indep (linux-qcom-headers-*/linux-qcom-tools-*) alongside the flavor. Ignored when flavor=ALL."
+        required: false
+        default: true
+        type: boolean
 
   workflow_call:
     inputs:
@@ -78,6 +88,16 @@ on:
         required: false
         default: false
         type: boolean
+      flavor:
+        description: "Kernel flavor to build (qcom, qcom-rt). ALL builds every flavor plus binary-indep."
+        required: false
+        default: "ALL"
+        type: string
+      binary_indep:
+        description: "Build binary-indep (linux-qcom-headers-*/linux-qcom-tools-*) alongside the flavor. Ignored when flavor=ALL."
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: read    # checkout + tag ls-remote only; output goes to S3
@@ -93,10 +113,11 @@ jobs:
     timeout-minutes: 360
 
     env:
-      SUITE:   ${{ inputs.suite   || 'resolute-qcom-devel' }}
-      ARCH:    arm64
-      FLAVOR:  all
-      DBGSYM:  ${{ github.event_name == 'schedule' && 'true' || (inputs.dbgsym && 'true' || 'false') }}
+      SUITE:        ${{ inputs.suite   || 'resolute-qcom-devel' }}
+      ARCH:         arm64
+      FLAVOR:       ${{ inputs.flavor || 'ALL' }}
+      BINARY_INDEP: ${{ inputs.binary_indep && 'true' || 'false' }}
+      DBGSYM:       ${{ github.event_name == 'schedule' && 'true' || (inputs.dbgsym && 'true' || 'false') }}
 
     steps:
       # -----------------------------------------------------------------------
@@ -294,7 +315,14 @@ jobs:
       - name: Build kernel packages (ghcr.io/qualcomm-linux/pkg-builder:${{ inputs.suite || 'resolute-qcom' }})
         run: |
           JOBS=$(nproc)
-          if [ "${FLAVOR}" = "all" ]; then TARGET="binary"; else TARGET="binary-${FLAVOR} binary-indep"; fi
+          FLAVOR_LC=$(echo "${FLAVOR}" | tr '[:upper:]' '[:lower:]')
+          if [ "${FLAVOR_LC}" = "all" ]; then
+            TARGET="binary"
+          elif [ "${BINARY_INDEP}" = "true" ]; then
+            TARGET="binary-${FLAVOR_LC} binary-indep"
+          else
+            TARGET="binary-${FLAVOR_LC}"
+          fi
 
           echo "Building: suite=${SUITE}  base_suite=${BASE_SUITE}  target=${TARGET}  arch=${ARCH}  jobs=${JOBS}"
 
@@ -441,6 +469,7 @@ jobs:
             echo "| Branch       | \`${SUITE}\` |"
             echo "| Architecture | \`${ARCH}\` |"
             echo "| Flavour      | \`${FLAVOR}\` |"
+            echo "| Binary-indep | \`${BINARY_INDEP}\` |"
             echo "| Dbgsym       | \`${DBGSYM}\` |"
             echo "| Container    | \`ghcr.io/qualcomm-linux/pkg-builder:${BASE_SUITE}\` |"
             echo "| Runner       | \`${{ runner.name }}\` |"
