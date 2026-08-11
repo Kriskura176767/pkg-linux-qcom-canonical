@@ -404,6 +404,9 @@ jobs:
       #    source tree (i.e. in GITHUB_WORKSPACE, not inside kernel-src/).
       #    qcom-rt flavour packages are split into output/rt/ so consumers can
       #    tell the two flavours apart; qcom flavour packages stay in output/.
+      #    output/rt/ is only created on demand (when a qcom-rt artifact is
+      #    actually found below) so a build that didn't select qcom-rt
+      #    doesn't produce an empty/misleading rt directory.
       #
       #    linux-qcom-headers-* and linux-qcom-tools-* are "Architecture: all"
       #    at the source level, so there is a single shared .deb per ABI
@@ -412,32 +415,36 @@ jobs:
       #    depends on linux-qcom-headers-*, and a future linux-tools-*-qcom-rt
       #    would similarly depend on linux-qcom-tools-*, so both are also
       #    copied (not moved — qcom needs its own copy in output/ too) into
-      #    output/rt/ to keep that folder self-contained.
+      #    output/rt/ to keep that folder self-contained — but again, only
+      #    if output/rt/ already exists (i.e. qcom-rt was actually built).
       # -----------------------------------------------------------------------
       - name: Collect built packages
         run: |
-          mkdir -p output/rt/
+          mkdir -p output/
 
           find "${GITHUB_WORKSPACE}" -maxdepth 1 \
             \( -name "*.deb" -o -name "*.ddeb" -o -name "*.changes" -o -name "*.buildinfo" \) \
             -print0 | while IFS= read -r -d '' f; do
               case "$(basename "$f")" in
-                *-qcom-rt_*|*-qcom-rt-dbgsym_*) dest="output/rt/" ;;
-                *)                              dest="output/"    ;;
+                *-qcom-rt_*|*-qcom-rt-dbgsym_*) mkdir -p output/rt/; cp "$f" output/rt/ ;;
+                *)                              cp "$f" output/ ;;
               esac
-              cp "$f" "$dest"
             done
 
-          find output -maxdepth 1 \
-            \( -name "linux-qcom-headers-*" -o -name "linux-qcom-tools-*" \) \
-            -print0 | while IFS= read -r -d '' f; do
-              cp "$f" output/rt/
-            done
+          if [ -d output/rt ]; then
+            find output -maxdepth 1 \
+              \( -name "linux-qcom-headers-*" -o -name "linux-qcom-tools-*" \) \
+              -print0 | while IFS= read -r -d '' f; do
+                cp "$f" output/rt/
+              done
+          fi
 
           echo "Built packages (qcom):"
           ls -lh output/ 2>/dev/null | grep -v '^total\|^d' || echo "(no files found)"
-          echo "Built packages (qcom-rt):"
-          ls -lh output/rt/ || echo "(no files found)"
+          if [ -d output/rt ]; then
+            echo "Built packages (qcom-rt):"
+            ls -lh output/rt/ || echo "(no files found)"
+          fi
 
       # -----------------------------------------------------------------------
       # 9. Upload to S3 (lecore-production runner only)
@@ -481,9 +488,11 @@ jobs:
             echo '```'
             ls -lh output/ 2>/dev/null | grep -v '^total\|^d' || echo "(none)"
             echo '```'
-            echo ""
-            echo "### Built packages (qcom-rt)"
-            echo '```'
-            ls -lh output/rt/ 2>/dev/null || echo "(none)"
-            echo '```'
+            if [ -d output/rt ]; then
+              echo ""
+              echo "### Built packages (qcom-rt)"
+              echo '```'
+              ls -lh output/rt/
+              echo '```'
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
