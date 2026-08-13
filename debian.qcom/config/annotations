@@ -618,7 +618,7 @@ CONFIG_COMPACT_UNEVICTABLE_DEFAULT              policy<{'arm64': '1', 'arm64-qco
 CONFIG_CORESIGHT                                policy<{'arm64': 'm'}>
 CONFIG_CORESIGHT_CATU                           policy<{'arm64-qcom': 'n'}>
 CONFIG_CORESIGHT_CPU_DEBUG                      policy<{'arm64': 'n'}>
-CONFIG_CORESIGHT_CTCU                           policy<{'arm64-qcom': 'n'}>
+CONFIG_CORESIGHT_CTCU                           policy<{'arm64-qcom': 'm'}>
 CONFIG_CORESIGHT_CTI                            policy<{'arm64': 'n', 'arm64-qcom': 'm'}>
 CONFIG_CORESIGHT_CTI_INTEGRATION_REGS           policy<{'arm64-qcom': 'n'}>
 CONFIG_CORESIGHT_DUMMY                          policy<{'arm64': 'm'}>
@@ -627,7 +627,7 @@ CONFIG_CORESIGHT_LINK_AND_SINK_TMC              policy<{'arm64': 'n', 'arm64-qco
 CONFIG_CORESIGHT_SINK_ETBV10                    policy<{'arm64': 'n'}>
 CONFIG_CORESIGHT_SINK_TPIU                      policy<{'arm64': 'n'}>
 CONFIG_CORESIGHT_SOURCE_ETM4X                   policy<{'arm64': 'm'}>
-CONFIG_CORESIGHT_STM                            policy<{'arm64': 'n'}>
+CONFIG_CORESIGHT_STM                            policy<{'arm64': 'm'}>
 CONFIG_CORESIGHT_TNOC                           policy<{'arm64': 'm'}>
 CONFIG_CORESIGHT_TPDA                           policy<{'arm64': 'm'}>
 CONFIG_CORESIGHT_TPDM                           policy<{'arm64': 'm'}>
@@ -2390,7 +2390,7 @@ CONFIG_STM32_RPROC                              policy<{'arm64': '-'}>
 CONFIG_STM32_TIMER_CNT                          policy<{'arm64': '-'}>
 CONFIG_STM32_WATCHDOG                           policy<{'arm64': '-'}>
 CONFIG_STMP_DEVICE                              policy<{'arm64': '-'}>
-CONFIG_STM_PROTO_OST                            policy<{'arm64': 'n'}>
+CONFIG_STM_PROTO_OST                            policy<{'arm64': 'm'}>
 CONFIG_STUB_CLK_HI3660                          policy<{'arm64': '-'}>
 CONFIG_STUB_CLK_HI6220                          policy<{'arm64': '-'}>
 CONFIG_ST_THERMAL                               policy<{'arm64': '-'}>
