@@ -144,6 +144,13 @@ jobs:
           echo "ORG_NAME=${GITHUB_REPOSITORY%%/*}" >> "$GITHUB_ENV"
           echo "REPO_NAME=${GITHUB_REPOSITORY#*/}"  >> "$GITHUB_ENV"
 
+      - name: Checkout workflow implementation
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: workflow-src
+          fetch-depth: 1
+
       # -----------------------------------------------------------------------
       # 2b. Derive base suite (for Docker image) and upstream tag prefix.
       #     BASE_SUITE strips any custom suffix so the correct pkg-builder image
@@ -445,6 +452,26 @@ jobs:
             echo "Built packages (qcom-rt):"
             ls -lh output/rt/ || echo "(no files found)"
           fi
+
+      - name: Generate qcom kernel provenance
+        env:
+          KERNEL_SOURCE_REF: ${{ inputs.ref != '' && inputs.ref || (inputs.kernel_version != '' && format('{0}-{1}', env.UPSTREAM_PREFIX, inputs.kernel_version) || inputs.suite || 'resolute-qcom-devel') }}
+        run: |
+          FLAVOURS_LC=$(echo "${FLAVOURS}" | tr '[:upper:]' '[:lower:]')
+          if [ "${FLAVOURS_LC}" != "all" ] && ! grep -qw qcom <<< "${FLAVOURS_LC}"; then
+            echo "qcom flavor was not selected, skipping kernel_info generation"
+            exit 0
+          fi
+
+          KERNEL_VARIANT=canonical \
+          KERNEL_FLAVOR=qcom \
+          KERNEL_SOURCE_REPOSITORY="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+          KERNEL_SOURCE_REF="${KERNEL_SOURCE_REF}" \
+          SUITE="${BASE_SUITE}" \
+          KERNEL_BUILD_ID="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            ./workflow-src/scripts/generate-kernel-info.sh kernel-src output output/kernel_info
+
+          cat output/kernel_info
 
       # -----------------------------------------------------------------------
       # 9. Upload to S3 (lecore-production runner only)
