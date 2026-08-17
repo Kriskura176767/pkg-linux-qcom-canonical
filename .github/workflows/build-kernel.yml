@@ -171,8 +171,9 @@ jobs:
         if: inputs.kernel_version != ''
         env:
           GH_TOKEN: ${{ github.token }}
+          KERNEL_VERSION: ${{ inputs.kernel_version }}
         run: |
-          TAG="${UPSTREAM_PREFIX}-${{ inputs.kernel_version }}"
+          TAG="${UPSTREAM_PREFIX}-${KERNEL_VERSION}"
           echo "Verifying tag '${TAG}' exists in repository..."
 
           if git ls-remote --exit-code --tags \
@@ -468,6 +469,7 @@ jobs:
         if: always()
         env:
           DEVEL_PRS: ${{ inputs.devel_prs }}
+          RUNNER_NAME: ${{ runner.name }}
         run: |
           {
             echo "## Kernel Build Summary"
@@ -479,7 +481,7 @@ jobs:
             echo "| Flavour      | \`${FLAVOURS}\` |"
             echo "| Dbgsym       | \`${DBGSYM}\` |"
             echo "| Container    | \`ghcr.io/qualcomm-linux/pkg-builder:${BASE_SUITE}\` |"
-            echo "| Runner       | \`${{ runner.name }}\` |"
+            echo "| Runner       | \`${RUNNER_NAME}\` |"
             if [ -n "${DEVEL_PRS}" ]; then
               echo "| Devel PRs    | \`${DEVEL_PRS}\` |"
             fi
