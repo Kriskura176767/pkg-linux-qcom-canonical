@@ -30,8 +30,7 @@ on:
   workflow_dispatch:   # manual only; always mirrors the latest carmel-team upload
 
 permissions:
-  contents: write
-  actions: write
+  contents: read
 
 # Only one sync at a time -- a second run's lease-pinned push would be rejected.
 concurrency:
@@ -95,6 +94,8 @@ jobs:
     timeout-minutes: 60
     needs: check-version
     if: needs.check-version.outputs.should_sync == 'true'
+    permissions:
+      contents: write
 
     outputs:
       synced_version: ${{ steps.sync.outputs.synced_version }}
@@ -126,6 +127,9 @@ jobs:
 
       - name: Print summary
         if: always()
+        env:
+          SYNCED_COUNT: ${{ steps.sync.outputs.synced_count || 0 }}
+          SYNCED_VERSION: ${{ steps.sync.outputs.synced_version }}
         run: |
           {
             echo "## Sync Summary"
@@ -133,8 +137,8 @@ jobs:
             echo "| Field | Value |"
             echo "|-------|-------|"
             echo "| Branch           | \`${BRANCH}\` |"
-            echo "| Uploads mirrored | ${{ steps.sync.outputs.synced_count || 0 }} |"
-            echo "| Latest version   | \`${{ steps.sync.outputs.synced_version }}\` |"
+            echo "| Uploads mirrored | ${SYNCED_COUNT} |"
+            echo "| Latest version   | \`${SYNCED_VERSION}\` |"
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ==========================================================================
@@ -145,6 +149,8 @@ jobs:
     runs-on: ubuntu-24.04-arm
     needs: [check-version, sync]
     if: needs.sync.result == 'success' && needs.sync.outputs.synced_count != '0'
+    permissions:
+      actions: write
 
     steps:
       - name: Dispatch build-kernel workflow

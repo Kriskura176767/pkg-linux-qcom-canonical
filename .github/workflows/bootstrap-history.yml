@@ -157,8 +157,10 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Fail on seed error
         if: steps.seed.outputs.status == 'failed'
+        env:
+          SEED_RC: ${{ steps.seed.outputs.rc }}
         run: |
-          echo "::error::seed-history.sh failed (rc=${{ steps.seed.outputs.rc }})." \
+          echo "::error::seed-history.sh failed (rc=${SEED_RC})." \
                "The clone is cached; investigate and re-dispatch to retry the publish."
           exit 1
 
@@ -167,15 +169,18 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Print summary
         if: always()
+        env:
+          SEED_BRANCH: ${{ steps.cfg.outputs.seed_branch }}
+          SEED_STATUS: ${{ steps.seed.outputs.status || 'failed' }}
         run: |
           {
             echo "## Bootstrap Summary"
             echo ""
             echo "| Field | Value |"
             echo "|-------|-------|"
-            echo "| Seed branch | \`${{ steps.cfg.outputs.seed_branch }}\` |"
-            echo "| Status      | \`${{ steps.seed.outputs.status || 'failed' }}\` |"
-            if [ "${{ steps.seed.outputs.status }}" = "complete" ]; then
-              echo "| Result      | Seed pushed -- review and promote \`${{ steps.cfg.outputs.seed_branch }}\` to the live branch |"
+            echo "| Seed branch | \`${SEED_BRANCH}\` |"
+            echo "| Status      | \`${SEED_STATUS}\` |"
+            if [ "${SEED_STATUS}" = "complete" ]; then
+              echo "| Result      | Seed pushed -- review and promote \`${SEED_BRANCH}\` to the live branch |"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
