@@ -51,6 +51,12 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install GitHub CLI
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gh
+
       - id: context
         name: Validate triggering workflow context
         env:
@@ -73,6 +79,12 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+
+      - name: Install GitHub CLI
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gh
 
       - id: check
         name: Start distro validation Check Run
@@ -134,6 +146,12 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install GitHub CLI
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gh
+
       - name: Publish failure status
         env:
           GH_TOKEN: ${{ github.token }}
@@ -168,6 +186,12 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install GitHub CLI
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gh
+
       - id: callback
         name: Validate returned distro result
         env:
@@ -191,6 +215,12 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+
+      - name: Install GitHub CLI
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gh
 
       - name: Publish final status and summary
         env:
