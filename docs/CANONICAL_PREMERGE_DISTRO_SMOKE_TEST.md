@@ -10,4 +10,4 @@ The expected flow is:
 3. Publish both image tarballs and validation receipts beside the kernel packages.
 4. Validate the completion marker and report the result on this pull request.
 
-This change is for pipeline validation only and must not be merged.
+This change is for pipeline validation only and must not be merged - try 2
