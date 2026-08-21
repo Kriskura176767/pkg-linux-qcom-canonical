@@ -54,7 +54,7 @@ fi
 
 check_title="Canonical premerge distro validation"
 check_summary="Building Canonical server and desktop images for PR #${PR_NUMBER}."
-check_text=$(printf "Kernel build ID: \`%s\`\nImage S3 prefix: \`%s\`" "$KERNEL_BUILD_ID" "$IMAGE_S3_PREFIX")
+check_text="$IMAGE_S3_PREFIX"
 
 if [[ "$MODE" == "start" ]]; then
   if [[ "$matching_count" == "1" ]]; then
@@ -154,7 +154,6 @@ case "$CONCLUSION" in
     check_summary="Canonical distro image validation was skipped for PR #${PR_NUMBER}."
     ;;
 esac
-check_text=$(printf "Kernel build ID: \`%s\`\nDistro build ID: \`%s\`\nImage S3 prefix: \`%s\`" "$KERNEL_BUILD_ID" "$DISTRO_BUILD_ID" "$IMAGE_S3_PREFIX")
 
 if [[ "$existing_status" == "completed" ]]; then
   existing_details_url="$(jq -r '.[0].details_url // ""' <<< "$matching_checks")"
