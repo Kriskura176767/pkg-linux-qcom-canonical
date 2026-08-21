@@ -247,6 +247,7 @@ jobs:
             echo "|-------|-------|"
             echo "| Pull request | \`#${PR_NUMBER}\` |"
             echo "| Result | \`${STATE}\` |"
+            echo "| Kernel build ID | \`${KERNEL_BUILD_ID}\` |"
             echo "| Distro build ID | \`${DISTRO_BUILD_ID}\` |"
             echo "| Image S3 prefix | \`${IMAGE_S3_PREFIX}\` |"
           } >> "$GITHUB_STEP_SUMMARY"
