@@ -20,9 +20,6 @@ head_sha="$(jq -r '.head_sha' <<< "$payload")"
 distro_result="$(jq -r '.distro_result' <<< "$payload")"
 distro_run_id="$(jq -r '.distro_run_id' <<< "$payload")"
 distro_run_attempt="$(jq -r '.distro_run_attempt' <<< "$payload")"
-distro_build_id="$(jq -r '.distro_build_id' <<< "$payload")"
-distro_ref="$(jq -r '.distro_ref' <<< "$payload")"
-image_s3_prefix="$(jq -r '.image_s3_prefix' <<< "$payload")"
 
 [[ "$(jq -r '.action' "$GITHUB_EVENT_PATH")" == "canonical-premerge-distro-result" ]] || { echo "::error::Unexpected callback event type." >&2; exit 1; }
 [[ "$kernel_build_id" =~ ^[0-9]+-[0-9]+$ ]] || { echo "::error::Invalid kernel build ID." >&2; exit 1; }
@@ -31,10 +28,7 @@ image_s3_prefix="$(jq -r '.image_s3_prefix' <<< "$payload")"
 [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Invalid pull request head SHA." >&2; exit 1; }
 [[ "$distro_result" =~ ^(success|failure|cancelled|skipped)$ ]] || { echo "::error::Invalid distro result." >&2; exit 1; }
 [[ "$distro_run_id" =~ ^[0-9]+$ && "$distro_run_attempt" =~ ^[0-9]+$ ]] || { echo "::error::Invalid distro run identity." >&2; exit 1; }
-[[ "$distro_build_id" == "${distro_run_id}-${distro_run_attempt}" ]] || { echo "::error::Distro build ID does not match its run identity." >&2; exit 1; }
-[[ "$distro_ref" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Invalid distro source SHA." >&2; exit 1; }
 [[ "$request_id" == "${kernel_build_id}-${head_sha}" ]] || { echo "::error::Request ID does not match the kernel build and head SHA." >&2; exit 1; }
-[[ "$image_s3_prefix" == "qualcomm-linux/${kernel_s3_prefix}/${kernel_build_id}" ]] || { echo "::error::Unexpected image S3 prefix." >&2; exit 1; }
 
 IFS=- read -r kernel_run_id kernel_run_attempt <<< "$kernel_build_id"
 kernel_run="$(gh api "repos/qualcomm-linux/pkg-linux-qcom-canonical/actions/runs/${kernel_run_id}")"
@@ -62,15 +56,18 @@ pull_requests="$(
 distro_run="$(gh api "repos/qualcomm-linux/qcom-distro-images/actions/runs/${distro_run_id}")"
 jq -e \
   --argjson attempt "$distro_run_attempt" \
-  --arg distro_ref "$distro_ref" \
   '.event == "repository_dispatch" and
    .path == ".github/workflows/canonical-premerge-validation.yml" and
-   .run_attempt == $attempt and
-   .head_sha == $distro_ref' \
+   .run_attempt == $attempt' \
   <<< "$distro_run" >/dev/null || {
     echo "::error::Distro workflow run does not match the callback context." >&2
     exit 1
   }
+
+distro_build_id="${distro_run_id}-${distro_run_attempt}"
+distro_ref="$(jq -r '.head_sha' <<< "$distro_run")"
+image_s3_prefix="qualcomm-linux/${kernel_s3_prefix}/${kernel_build_id}"
+[[ "$distro_ref" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Invalid distro source SHA." >&2; exit 1; }
 
 distro_run_url="$(jq -r '.html_url' <<< "$distro_run")"
 
