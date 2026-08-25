@@ -391,7 +391,7 @@ jobs:
               # -dbgsym.ddeb (vmlinux + modules with full debug symbols).
               DBGSYM_OPT="do_dbgsym_package=false"
               if [ "${DBGSYM}" = "true" ]; then DBGSYM_OPT="do_dbgsym_package=true"; fi
-              fakeroot debian/rules ${TARGET} do_skip_checks=true "${DBGSYM_OPT}"
+              fakeroot debian/rules ${TARGET} do_skip_checks=true "${DBGSYM_OPT}" do_fitimage=false
 
               kill "${HEARTBEAT}" 2>/dev/null || true
 
